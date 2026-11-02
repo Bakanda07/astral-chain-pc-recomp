@@ -54,6 +54,31 @@ This repository is public. Game data lives outside it and every derived file sta
 
 Code, comments, docs and commit messages are in English. Commit messages are plain sentences without type prefixes.
 
+## Controller
+
+The game reads the pad through `runtime/ov_input.c` (libnx `NpadState`), fed by `runtime/input.c`, which merges an SDL3
+gamepad, the keyboard and the mouse. A physical controller needs no setup: hot-plug, both sticks, all buttons, analog
+ZL/ZR, rumble and gyro are used when SDL exposes them. `AC_PAD_LAYOUT=auto|nintendo|xbox` picks the face-button layout,
+and `AC_BIND_<ACTION>` (or the Buttons tab) rebinds an action.
+
+Default keyboard: WASD move, arrow keys camera, E=A, Space=X, Shift=B, Q=L, R=R, Z=ZL, F=ZR, 1-4 D-pad, Tab=Plus,
+M=Minus. Mouse left=Y, mouse right=ZL. `AC_INPUT=none` disables all input.
+
+For runs without a physical controller use `AC_INPUT_SCRIPT=<file>`. Lines are `<frame> <button> [hold]` in 60 Hz game
+ticks, or `@<ms> <button> [hold]` in milliseconds of the world clock (after the first present). `LSTICK` and `RSTICK`
+take `<x> <y> [hold]`. Buttons: `A B X Y L R ZL ZR PLUS MINUS LEFT UP RIGHT DOWN LCLICK RCLICK`. Example that presses
+ZL+ZR on the title screen:
+
+```text
+@15000 ZL 3000
+@15000 ZR 3000
+```
+
+`AC_INPUT_RECORD=<file>` writes a played session in the same format, so it can be replayed exactly. `AC_TEST_PAD=<lx>,
+<ly>,<rx>,<ry>` creates an SDL virtual gamepad with fixed stick axes for testing the input path. Use a scripted
+`--seconds` run plus the performance overlay to verify input changes; `--shot` saves the game texture before the ImGui
+overlay, so it never shows the overlay itself.
+
 ## About "Eglantine" subfolder
 
 Eglantine is a free and opensource (FOSS) Switch 2 emulator, derived from Eden, Yuzu and Sudachi - started by developer Camille LaVey. It's written in C++ with portability in mind, with builds for Windows, Linux and macOS. You can refer to this repo to find relevant code such as missing services or anything else, but use subagents to process the code since the codebase is large

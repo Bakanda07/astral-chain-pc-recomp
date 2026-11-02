@@ -430,6 +430,15 @@ NVN_API(nvnCommandBufferInitialize) {
     cb_set_disabled(o, CB_NO_COMMAND | CB_NO_CONTROL, 0);
     ret_x(c, 1);
 }
+// void nvnCommandBufferFenceSync(NVNcommandBuffer *cmd, NVNsync *s, NVNsyncCondition condition, int flags): the sync
+// signals when the commands recorded before this point have completed. The back end replays a submit synchronously, so a
+// sync waited on after its command buffer was submitted is already satisfied by the newest submitted fence.
+NVN_API(nvnCommandBufferFenceSync) {
+    sync_t *s = arg_p(c, 1);
+    if (!s) return;
+    s->fenced = 1;
+    s->fence = nvn_fence_last();
+}
 // void nvnCommandBufferFinalize(NVNcommandBuffer *cmd): handles outlive their recorder
 NVN_API(nvnCommandBufferFinalize) {
     cmd_t *o = cmd_of(c);

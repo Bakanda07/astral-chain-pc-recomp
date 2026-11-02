@@ -26,6 +26,9 @@ void audout_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs
 
 // ---- ov_prepo.c
 void prepo_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);    // "prepo:u"
+
+// ---- ov_fsp.c
+void fsp_srv_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);          // "fsp-srv"
 // ---- ov_hid.c
 void hid_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "hid" (IHidServer)
 const char *ov_shared_font_dir(char *buf, size_t n);   // AC_SHARED_FONTS, else <romfs>/../../firmware/shared-fonts

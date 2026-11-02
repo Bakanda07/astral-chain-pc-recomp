@@ -28,6 +28,7 @@ enum { T_CLOSE = 2, T_REQUEST = 4, T_CONTROL = 5, T_REQUEST_CTX = 6, T_CONTROL_C
 static const struct { const char *name; IpcHandler handler; } services[] = {
     {"audren:u", audren_manager_handler},
     {"audout:u", audout_manager_handler},
+    {"fsp-srv", fsp_srv_handler},
     {"hid", hid_server_handler},
     {"hwopus", hwopus_server_handler},
     {"nifm:u", nifm_user_manager_handler},

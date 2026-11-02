@@ -874,6 +874,30 @@ static void ov_font_size(Cpu *c) {
     ret_x(c, fonts.size[t]);
 }
 
+// nn::pl::GetSharedFont(count, out, max, language): the SDK asks pl:u for the shared fonts and maps its shared memory.
+// The port already owns the font files, so fill the caller's array directly (stride 0x18: type, address, size) and let
+// the SDK skip the service. Types whose files are absent are skipped: the game's own UI fonts do not need them.
+typedef struct { uint32_t type, pad; uint64_t addr, size; } PlSharedFontData;
+static void ov_font_get(Cpu *c) {
+    int *count = (int *)(uintptr_t)c->x[0];
+    PlSharedFontData *out = (PlSharedFontData *)(uintptr_t)c->x[1];
+    int max = (int)c->x[2], n = 0;
+    for (int t = 0; t < SHARED_FONT_TYPES && n < max; t++) {
+        char dir[PLAT_PATH_MAX], path[PLAT_PATH_MAX + 64];
+        snprintf(path, sizeof path, "%s/%s", ov_shared_font_dir(dir, sizeof dir), font_files[t]);
+        if (!plat_file_exists(path)) continue;
+        const uint8_t *p = font_data(c, "GetSharedFont", t);
+        out[n++] = (PlSharedFontData){(uint32_t)t, 0, (uint64_t)(uintptr_t)(p + 8), fonts.size[t]};
+    }
+    if (count) *count = n;
+    if (!n) {
+        char dir[PLAT_PATH_MAX];
+        rt_log("pl: GetSharedFont: no shared fonts under %s, continuing without system fonts",
+               ov_shared_font_dir(dir, sizeof dir));
+    }
+    ret_x(c, 1);
+}
+
 // ==== registration
 HOST_OVERRIDE("_ZN2nn2oe10InitializeEv", ov_oe_initialize);
 HOST_OVERRIDE("_ZN2nn2oe18GetDesiredLanguageEv", ov_desired_language);
@@ -969,3 +993,4 @@ HOST_OVERRIDE("_ZN2nn4time48CalculateStandardUserSystemClockDifferenceByUserERKN
 HOST_OVERRIDE("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", ov_font_state);
 HOST_OVERRIDE("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", ov_font_address);
 HOST_OVERRIDE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", ov_font_size);
+HOST_OVERRIDE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12LanguageCodeE", ov_font_get);
