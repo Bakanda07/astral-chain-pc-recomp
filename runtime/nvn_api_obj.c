@@ -31,6 +31,11 @@ NVN_API(nvnTexturePoolFinalize) { (void)c; }
 NVN_API(nvnTexturePoolRegisterTexture) {
     gfx_backend()->texture_register((int)arg_x(c, 1), arg_p(c, 2), arg_p(c, 3));
 }
+// void nvnTexturePoolRegisterImage(const NVNtexturePool *tp, int id, const NVNimage *image, const NVNtextureView *v):
+// the same slot table as a texture, the back end keeps one id -> texture/view mapping for handles.
+NVN_API(nvnTexturePoolRegisterImage) {
+    gfx_backend()->texture_register((int)arg_x(c, 1), arg_p(c, 2), arg_p(c, 3));
+}
 // NVNboolean nvnSamplerPoolInitialize(NVNsamplerPool *sp, const NVNmemoryPool *p, ptrdiff_t offset, int n)
 NVN_API(nvnSamplerPoolInitialize) {
     *(dpool_t *)arg_p(c, 0) = (dpool_t){arg_p(c, 1), (int64_t)arg_x(c, 2), (int32_t)arg_x(c, 3)};
@@ -688,6 +693,24 @@ NVN_API(nvnWindowAcquireTexture) {
         s->fence = 0;
     }
     ret_x(c, NVN_WINDOW_ACQUIRE_TEXTURE_RESULT_SUCCESS);
+}
+
+// NVNqueueAcquireTextureResult nvnQueueAcquireTexture(NVNqueue *q, NVNwindow *w, int *index): the queue variant of
+// nvnWindowAcquireTexture, without a sync to satisfy: it blocks on the image's availability like the window call and
+// hands out the next image index.
+NVN_API(nvnQueueAcquireTexture) {
+    win_t *o = arg_p(c, 1);
+    int *out = arg_p(c, 2);
+    NVN_BLOCKING();
+    int idx = o->active ? o->next++ % o->active : 0;
+    *out = idx;
+    uint64_t at = idx < 4 ? o->avail[idx] : 0;
+    if (at) {
+        uint64_t p0 = perf_begin();
+        sleep_until(at);
+        perf_end(PERF_PACE, p0);
+    }
+    ret_x(c, NVN_QUEUE_ACQUIRE_TEXTURE_RESULT_SUCCESS);
 }
 
 // void nvnQueuePresentTexture(NVNqueue *q, NVNwindow *w, int index): queues the copy and returns at once. The display

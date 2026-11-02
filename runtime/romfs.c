@@ -35,6 +35,7 @@
 #include "fs.h"
 #include "host.h"
 #include "input_map.h"
+#include "layout.h"
 #include "mods.h"
 #include "romfs_config.h"
 #include "romfs_path.h"
@@ -61,6 +62,11 @@ static uint8_t *index_bytes;
 static size_t index_size;
 static uint64_t file_count, strings_offset;
 static PlatFile *image;
+// The RomFS header (0x50 bytes) and the extent of the four metadata tables (directory and file hash/meta) in the image.
+// Astral Chain reads its RomFS through the SDK, which expects the fs service to have written that metadata into the
+// cache buffer MountRom receives; ov_mount_rom builds it there.
+static uint8_t romfs_header[0x50];
+static uint64_t romfs_meta_off, romfs_meta_size;
 static const uint8_t *image_map;
 static char image_file[2048];
 static char index_dir[2048];         // the directory of romfs-index.bin: the proof file's default place
@@ -99,6 +105,17 @@ static int64_t read_at(PlatFile *f, void *buf, uint32_t n, uint64_t off) {
 }
 
 static PlatFile *open_read(const char *path) { return plat_file_open(path); }
+
+// Read-fault paging for the image at ROMFS_BASE (recomp/layout.py): the game parses the image directly at that
+// fixed guest address, so the first guest read of a 4 KiB page commits it and fills it from romfs.bin.
+// MapViewOfFileEx cannot place the view there (ROMFS_BASE is not 64 KiB-aligned), hence the fault path.
+static int romfs_read_fault(uint64_t addr) {
+    if (addr < ROMFS_BASE || addr >= ROMFS_BASE + ROMFS_SIZE) return 0;
+    uint64_t page = addr & ~0xfffull, off = page - ROMFS_BASE;
+    uint32_t n = (uint32_t)((ROMFS_SIZE - off < 0x1000) ? ROMFS_SIZE - off : 0x1000);
+    if (!plat_mem_commit(page, 0x1000)) return 0;
+    return read_at(image, (void *)page, n, off) == n;
+}
 
 static Identity identity_of(PlatFile *f) {
     PlatFileId i;
@@ -947,6 +964,35 @@ static void init_once(void *param) {
         rt_fatal("RomFS image %s has %llu bytes, the index was built for %llu", image_file,
                  (unsigned long long)sz.size, (unsigned long long)ROMFS_IMAGE_SIZE);
     rt_log("RomFS image %s: size ok (%llu bytes)", image_file, (unsigned long long)ROMFS_IMAGE_SIZE);
+    // Parse the RomFS header: the four metadata tables (directory and file hash and meta) sit together at the end of the
+    // image; the fs service copies them into the caller's cache buffer on MountRom.
+    if (read_at(image, romfs_header, sizeof romfs_header, 0) == (int64_t)sizeof romfs_header &&
+        ((uint32_t *)romfs_header)[0] == 0x50u) {
+        uint64_t *h = (uint64_t *)romfs_header;
+        uint64_t dir_hash_off = h[1], dir_hash_size = h[2], dir_meta_off = h[3], dir_meta_size = h[4];
+        uint64_t file_hash_off = h[5], file_hash_size = h[6], file_meta_off = h[7], file_meta_size = h[8];
+        uint64_t lo = dir_hash_off, hi = file_meta_off + file_meta_size;
+        if (dir_hash_off <= dir_meta_off && dir_meta_off <= file_hash_off && file_hash_off <= file_meta_off &&
+            hi <= ROMFS_IMAGE_SIZE && lo < hi) {
+            romfs_meta_off = lo;
+            romfs_meta_size = hi - lo;
+            rt_log("RomFS metadata: %#llx bytes at %#llx (dir hash %#llx+%#llx, dir meta %#llx+%#llx, file hash "
+                   "%#llx+%#llx, file meta %#llx+%#llx, data %#llx)",
+                   (unsigned long long)romfs_meta_size, (unsigned long long)romfs_meta_off,
+                   (unsigned long long)dir_hash_off, (unsigned long long)dir_hash_size,
+                   (unsigned long long)dir_meta_off, (unsigned long long)dir_meta_size,
+                   (unsigned long long)file_hash_off, (unsigned long long)file_hash_size,
+                   (unsigned long long)file_meta_off, (unsigned long long)file_meta_size, (unsigned long long)h[9]);
+        } else {
+            rt_log("RomFS metadata: header offsets out of bounds; MountRom hands out no cache");
+        }
+    } else {
+        rt_log("RomFS metadata: unexpected header; MountRom hands out no cache");
+    }
+    // The game reads the RomFS image at the fixed guest address ROMFS_BASE (recomp/layout.py): it parses the image
+    // directly, no nn::fs calls. The range lies inside the module window reservation (PAGE_NOACCESS), so pages are
+    // committed and filled from the image on the first guest read fault (romfs_read_fault).
+    plat_mem_read_fault_hook(romfs_read_fault);
     verify_image(index_dir);
     const char *mm = cfg_get("AC_ROMFS_MMAP");
     if (mm && strcmp(mm, "0")) {
@@ -1143,8 +1189,18 @@ uint32_t romfs_entry_type(int *out, const char *path) {
 void romfs_dir_list(const char *path, int (*add)(const char *name, int kind, uint64_t size, void *ctx), void *ctx) {
     fs_init();
     const char *p = romfs_path_relative(mount_name, path);
-    if (!p || !add) return;
+    if (!p) {
+        // The mount root ("Contents:/" or "Contents:///") has no relative path of its own; list the top level.
+        size_t n = strlen(mount_name);
+        const char *q = path && !strncmp(path, mount_name, n) && path[n] == ':' ? path + n + 1 : NULL;
+        if (!q || *q != '/') return;
+        while (*q == '/') q++;
+        if (*q) return;
+        p = "";
+    }
+    if (!add) return;
     size_t dn = strlen(p);
+    while (dn && p[dn - 1] == '/') dn--;   // "Contents:/st8/" and "Contents:/st8" name the same directory
     char last[769];   // one child name: nn::fs caps names at 768 bytes
     int have = 0;
     for (uint64_t i = 0; i < file_count; i++) {
@@ -1165,12 +1221,64 @@ void romfs_dir_list(const char *path, int (*add)(const char *name, int kind, uin
 
 // ---- overrides
 // nn::Result nn::fs::MountRom(const char *name, void *cache, size_t cache_size)
-static void ov_mount_rom(Cpu *c) { ret_x(c, romfs_mount(arg_p(c, 0))); }
-// nn::Result nn::fs::QueryMountRomCacheSize(size_t *out): no cache needed, the host reads the image directly
+//
+// The fs service writes the RomFS metadata (the four directory and file tables, with offsets rebased onto the cache)
+// into the cache buffer, and the SDK's RomFsFileSystem parses files from it. Nothing on the host does that, so the
+// mount hands the tables over here; without them the SDK reports an empty RomFS and the game's file table stays empty
+// (its loader then never finds a single resource).
+static void ov_mount_rom(Cpu *c) {
+    const char *name = arg_p(c, 0);
+    void *cache = arg_p(c, 1);
+    uint64_t size = c->x[2];
+    if (cache && romfs_meta_size) {
+        uint64_t *h = (uint64_t *)romfs_header;   // image copy; the cache copy gets rebased offsets
+        uint64_t dir_hash_size = h[2], dir_meta_size = h[4], file_hash_size = h[6];
+        uint64_t dir_hash_off = sizeof romfs_header;
+        uint64_t dir_meta_off = dir_hash_off + dir_hash_size;
+        uint64_t file_hash_off = dir_meta_off + dir_meta_size;
+        uint64_t file_meta_off = file_hash_off + file_hash_size;
+        uint64_t need_bytes = file_meta_off + h[8];
+        if (size < need_bytes) {
+            rt_logf(" -> cache too small (%#llx < %#llx); no metadata copied", (unsigned long long)size,
+                    (unsigned long long)need_bytes);
+        } else {
+            uint8_t *copy = malloc((size_t)need_bytes);
+            int ok = copy != 0;
+            if (ok) {
+                memcpy(copy, romfs_header, sizeof romfs_header);
+                uint64_t *dh = (uint64_t *)copy;
+                dh[1] = dir_hash_off;
+                dh[3] = dir_meta_off;
+                dh[5] = file_hash_off;
+                dh[7] = file_meta_off;
+                ok = read_at(image, copy + dir_hash_off, (uint32_t)dir_hash_size, h[1]) == (int64_t)dir_hash_size &&
+                     read_at(image, copy + dir_meta_off, (uint32_t)dir_meta_size, h[3]) == (int64_t)dir_meta_size &&
+                     read_at(image, copy + file_hash_off, (uint32_t)file_hash_size, h[5]) == (int64_t)file_hash_size &&
+                     read_at(image, copy + file_meta_off, (uint32_t)h[8], h[7]) == (int64_t)h[8];
+            }
+            if (ok) {
+                mem_thaw((uintptr_t)cache, need_bytes);
+                memcpy(cache, copy, (size_t)need_bytes);
+                free(copy);
+            } else {
+                free(copy);
+                rt_logf("ov_mount_rom: metadata build failed");
+            }
+        }
+    }
+    int rc = romfs_mount(name);
+    ret_x(c, rc);
+}
+// nn::Result nn::fs::QueryMountRomCacheSize(size_t *out): the buffer MountRom needs for the metadata tables
 static void ov_query_cache(Cpu *c) {
     uint64_t *out = arg_p(c, 0);
-    if (out) *out = 0;
-    ret_x(c, out ? 0 : FS_R_INVALID);
+    if (!out) {
+        ret_x(c, FS_R_INVALID);
+        return;
+    }
+    uint64_t bytes = romfs_meta_size ? (sizeof romfs_header + romfs_meta_size + 0xFFFu) & ~0xFFFull : 0;
+    *out = bytes;
+    ret_x(c, 0);
 }
 // void nn::fs::InitializeForApplication(): SDK-internal; opens the index instead of the fs service session
 static void ov_initialize(Cpu *c) {

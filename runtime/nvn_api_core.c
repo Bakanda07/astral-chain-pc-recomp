@@ -167,13 +167,14 @@ static int pool_gpu_visible(const pool_t *o) { return !(o->flags & NVN_MEMORY_PO
 
 // ---------- Device
 static const int devinfo[] = {   // Tegra X1 values (nnheaders nvn_DeviceConstantsNX.h, measured on SMO)
-    [0x00] = 55, [0x01] = 15,    // ABI: TOTK main requires major 55, minor >= 15
+    [0x00] = 53, [0x01] = 313,   // ABI: Astral Chain main (SDK 6.4.0) requires major == 53, minor >= 310; nxnative hle_nvn.c
+                                 // reports 53.313 for SDK 10 and older (TotK, a recent SDK, required 55/15)
     [0x02] = 14, [0x03] = 65536, [0x04] = 256, [0x05] = 8, [0x06] = 16, [0x07] = 4, [0x08] = 16, [0x09] = 32,
     [0x0A] = 16, [0x0B] = 4, [0x0C] = 4, [0x0D] = 4, [0x0E] = 16, [0x0F] = 32, [0x10] = 32, [0x11] = 256, [0x12] = 256,
     [0x13] = 4, [0x14] = 8, [0x15] = 512, [0x16] = 256, [0x17] = 2, [0x18] = 256, [0x19] = 4096, [0x1A] = 131072,
     [0x1B] = 16, [0x1C] = 1536, [0x1D] = 1024, [0x1E] = 64, [0x1F] = 1536, [0x20] = 65535, [0x21] = 65535, [0x22] = 65535,
     [0x23] = 8, [0x24] = 1048576, [0x25] = 4096, [0x26] = 16, [0x27] = 4096, [0x28] = 1, [0x29] = 1, [0x2A] = 1,
-    [0x2B] = 262144, [0x2C] = 15, [0x2D] = 2048, [0x2E] = 1, [0x2F] = 1, [0x30] = 14, [0x31] = 5, [0x32] = 1, [0x33] = 8,
+    [0x2B] = 262144, [0x2C] = 15, [0x2D] = 2048, [0x2E] = 1, [0x2F] = 1, [0x30] = 15, [0x31] = 5, [0x32] = 1, [0x33] = 8,
     [0x34] = 8, [0x35] = 4, [0x36] = 32, [0x37] = 128, [0x38] = 32, [0x39] = 128, [0x3A] = 65536, [0x3B] = 1, [0x3C] = 4,
     [0x3D] = 16384, [0x3E] = 134217728, [0x3F] = 2048, [0x40] = 16384, [0x41] = 16384, [0x42] = 1, [0x43] = 1, [0x44] = 1,
     [0x45] = 1, [0x46] = 5, [0x47] = 1, [0x48] = 1, [0x49] = 1, [0x4A] = 1, [0x4B] = 1, [0x4C] = 1, [0x4D] = 16,
@@ -198,6 +199,9 @@ NVN_API(nvnDeviceInitialize) {
 }
 // void nvnDeviceFinalize(NVNdevice *d)
 NVN_API(nvnDeviceFinalize) { ((dev_t_ *)arg_p(c, 0))->magic = 0; }
+// void nvnDeviceApplyDeferredFinalizes(NVNdevice *d, int flush): every Finalize takes effect immediately here, and the
+// back end redirects registrations whose serial was finalized (nvn_api_obj.c), so there is nothing to defer.
+NVN_API(nvnDeviceApplyDeferredFinalizes) { (void)c; }
 // void nvnDeviceGetInteger(const NVNdevice *d, NVNdeviceInfo what, int *out)
 NVN_API(nvnDeviceGetInteger) {
     unsigned w = (unsigned)arg_x(c, 1);
@@ -486,6 +490,21 @@ NVN_API(nvnSyncWait) {
     }
     if (ok) b->cpu_synced(s->fence);
     ret_x(c, ok ? NVN_SYNC_WAIT_RESULT_CONDITION_SATISFIED : NVN_SYNC_WAIT_RESULT_TIMEOUT_EXPIRED);
+}
+// NVNboolean nvnQueueWaitSync(NVNqueue *q, const NVNsync *s): wait for everything fenced so far, the blocking form of
+// nvnSyncWait with no timeout.
+NVN_API(nvnQueueWaitSync) {
+    const sync_t *s = arg_p(c, 1);
+    if (!s->fenced) { ret_x(c, 0); return; }
+    const GfxBackend *b = gfx_backend();
+    if (b->fence_done() >= s->fence) { b->cpu_synced(s->fence); ret_x(c, 1); return; }
+    int ok;
+    {
+        NVN_BLOCKING();
+        ok = b->fence_wait(s->fence, UINT64_MAX);
+    }
+    if (ok) b->cpu_synced(s->fence);
+    ret_x(c, ok ? 1 : 0);
 }
 // void nvnEventBuilderSetDefaults(NVNeventBuilder *b)
 NVN_API(nvnEventBuilderSetDefaults) { memset(arg_p(c, 0), 0, sizeof(ev_builder_t)); }

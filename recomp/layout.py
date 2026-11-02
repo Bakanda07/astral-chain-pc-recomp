@@ -19,13 +19,28 @@ ALIGN = 0x200000
 ADDRESS_LIMIT = 1 << 39
 ORDER = ['main'] + [f'subsdk{i}' for i in range(10)] + ['sdk']
 
+# Astral Chain parses the RomFS image at a fixed address baked into the game binary (content manager init,
+# f_70005693e0, passes it to the reader setup). The image must be mapped there before the game boots; the
+# modules that follow (sdk) go above the end of the image.
+ROMFS_BASE = 0x7000d1b000
+
+
+def romfs_size(exefs):
+    """Size of the extracted RomFS image, or 0 when it is not there (generator-only runs).
+
+    The image lives at <exefs>/../romfs/romfs.bin next to the extracted ExeFS."""
+    romfs = Path(exefs) / '..' / 'romfs' / 'romfs.bin'
+    return romfs.stat().st_size if romfs.exists() else 0
+
 
 def align_up(v, a=ALIGN):
     return (v + a - 1) & ~(a - 1)
 
 
 def layout(exefs):
-    """[(name, base, size)] for the modules present in the ExeFS directory, in load order."""
+    """[(name, base, size)] for the modules present in the ExeFS directory, in load order.
+
+    The RomFS region (ROMFS_BASE..+size) is reserved between main and the modules that follow it."""
     exefs = Path(exefs)
     out, base = [], FIRST_BASE
     for name in ORDER:
@@ -35,18 +50,23 @@ def layout(exefs):
         size = Nso(str(path)).size
         out.append((name, base, size))
         base = align_up(base + size)
+        if name == 'main':
+            base = max(base, align_up(ROMFS_BASE + romfs_size(exefs)))
     if base > ADDRESS_LIMIT:
         raise ValueError(f'modules end at {base:#x}, above 2^39')
     return out
 
 
-def write(mods, outdir):
+def write(mods, outdir, romfs_size=0):
     """layout.json for Python tools and layout.h for the runtime."""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / 'layout.json').write_text(json.dumps(
         [{'name': n, 'base': f'{b:#x}', 'size': f'{s:#x}'} for n, b, s in mods], indent=1) + '\n')
     lines = ['// Module layout chosen by recomp/layout.py. Generated; do not edit.', '#pragma once', '']
+    lines.append(f'#define ROMFS_BASE {ROMFS_BASE:#x}ull')
+    lines.append(f'#define ROMFS_SIZE {romfs_size:#x}ull')
+    lines.append('')
     for n, b, s in mods:
         lines.append(f'#define MOD_{n.upper()}_BASE {b:#x}ull')
         lines.append(f'#define MOD_{n.upper()}_SIZE {s:#x}ull')

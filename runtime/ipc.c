@@ -27,7 +27,11 @@ enum { T_CLOSE = 2, T_REQUEST = 4, T_CONTROL = 5, T_REQUEST_CTX = 6, T_CONTROL_C
 // Services sm: hands out. Anything else is a named fatal.
 static const struct { const char *name; IpcHandler handler; } services[] = {
     {"audren:u", audren_manager_handler},
+    {"audout:u", audout_manager_handler},
     {"hid", hid_server_handler},
+    {"hwopus", hwopus_server_handler},
+    {"nifm:u", nifm_user_manager_handler},
+    {"prepo:u", prepo_manager_handler},
     {"nfp:user", nfp_user_manager_handler},
     {"set", settings_server_handler},
 };
@@ -163,7 +167,7 @@ static void parse(const uint32_t *m, IpcRequest *rq, const uint32_t **data_words
     if ((const uint8_t *)recv - (const uint8_t *)m > IPC_MSG_BYTES) rt_fatal("ipc: request exceeds the message buffer");
 }
 
-static void respond(uint32_t *m, int tipc, const IpcResponse *rs) {
+static void respond(uint32_t *m, int tipc, const IpcResponse *rs, int domain) {
     uint32_t out[IPC_MSG_BYTES / 4];
     memset(out, 0, sizeof out);
     unsigned special = rs->ncopy || rs->nmove;
@@ -182,6 +186,11 @@ static void respond(uint32_t *m, int tipc, const IpcResponse *rs) {
     uint8_t *words = (uint8_t *)p, *payload;
     unsigned header = tipc ? 4 : 16;
     payload = tipc ? words : (uint8_t *)out + (((words - (uint8_t *)out) + 15) & ~15);
+    if (domain && !tipc) {   // a domain reply starts with a 16-byte DomainMessageHeader (no output objects)
+        uint32_t dh[4] = {0, 0, 0, 0};
+        memcpy(payload, dh, 16);
+        payload += 16;
+    }
     unsigned used = (unsigned)(payload - words) + header + rs->data_size;
     unsigned nwords = tipc ? (used + 3) / 4 : (used + 16 + 3) / 4;   // CMIF keeps alignment slack like libnx
     if ((size_t)(words - (uint8_t *)out) + nwords * 4 > IPC_MSG_BYTES) rt_fatal("ipc: response exceeds the message buffer");
@@ -196,14 +205,17 @@ static void respond(uint32_t *m, int tipc, const IpcResponse *rs) {
     memcpy(m, out, IPC_MSG_BYTES);
 }
 
-// CMIF control requests. Domains are not implemented: MNG boots 1.2.1 without them.
+// CMIF control requests.
 static void control(IpcSession *s, const IpcRequest *rq, IpcResponse *rs) {
     switch (rq->cmd) {
+    case 0:   // ConvertToDomain: the session now takes DomainMessageHeader-prefixed requests
+        s->domain = 1;
+        return;
     case 3: { uint16_t n = POINTER_BUFFER_SIZE; IPC_OUT(rs, n); return; }   // QueryPointerBufferSize
     case 2: case 4: rs->move[rs->nmove++] = session_clone(s); return;          // CloneCurrentObject(Ex)
     default:
         ipc_backtrace();
-        rt_fatal("ipc: %s control command %u is not implemented (domains are not served)", s->name, rq->cmd);
+        rt_fatal("ipc: %s control command %u is not implemented", s->name, rq->cmd);
     }
 }
 
@@ -217,6 +229,7 @@ static void dispatch(IpcSession *s, uint32_t *m) {
     IpcResponse rs;
     memset(&rs, 0, sizeof rs);
     int tipc = rq.type >= T_TIPC_BASE;
+    int domain = 0;
     const uint8_t *bytes = (const uint8_t *)words, *end = bytes + ndata * 4;
     if (tipc) {
         rq.cmd = rq.type - T_TIPC_BASE;
@@ -233,6 +246,13 @@ static void dispatch(IpcSession *s, uint32_t *m) {
         rq.cmd = h[2];
         rq.data = payload + 16;
         rq.data_size = payload + 16 <= end ? (uint32_t)(end - payload - 16) : 0;
+        if (s->domain && rq.type != T_CONTROL && rq.type != T_CONTROL_CTX && rq.data_size >= 16) {
+            const uint32_t *dh = (const uint32_t *)rq.data;
+            if ((dh[0] & 0xff) == 2) return;   // CloseVirtualHandle
+            rq.data += 16;
+            rq.data_size -= 16;
+            domain = 1;
+        }
     } else {
         fflush(stdout);
         rt_logf("ipc: %s message type %u:", s->name, rq.type);
@@ -241,15 +261,18 @@ static void dispatch(IpcSession *s, uint32_t *m) {
         ipc_backtrace();
         rt_fatal("ipc: %s message type %u is not implemented", s->name, rq.type);
     }
-    if (rq.type == T_CONTROL || rq.type == T_CONTROL_CTX) control(s, &rq, &rs);
-    else s->handler(s, &rq, &rs);
+    int domain_resp = domain;
+    if (rq.type == T_CONTROL || rq.type == T_CONTROL_CTX) {
+        control(s, &rq, &rs);
+        domain_resp = 0;
+    } else s->handler(s, &rq, &rs);
     if (rt_trace & RT_TRACE_IPC) {
         char d[160];
         rt_log("ipc: %s %s %u -> %#x (copy %u move %u) from %s", s->name,
                tipc ? "tipc" : rq.type == T_CONTROL || rq.type == T_CONTROL_CTX ? "control" : "cmd", rq.cmd,
                rs.result, rs.ncopy, rs.nmove, t_req ? ldr_describe(t_req->x[30], d, sizeof d) : "host");
     }
-    respond(m, tipc, &rs);
+    respond(m, tipc, &rs, domain_resp);
 }
 
 // ---- sm: service manager (CMIF, and TIPC as the SDK's sm client speaks it since 12.0.0)

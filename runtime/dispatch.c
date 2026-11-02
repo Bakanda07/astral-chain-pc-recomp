@@ -1,15 +1,16 @@
 // Indirect-branch dispatch: guest address -> lifted function, O(1).
 //
-// Layout of the table: one uint32_t slot per 4-byte guest instruction over [lo, hi), where lo is the lowest function
-// start of any module and hi is past the highest. A slot is 0 when no function starts there, else the host function's
-// address minus `anchor` (an address just below the lowest host function), so 4 bytes are enough as long as all lifted
-// code lies within 4 GiB, which a single PE image guarantees. Memory: 4 bytes per 4 guest bytes, i.e. the size of the
-// guest range covered. The gaps between code ranges (rodata, data, bss, alignment) are reserved but never written, so
-// the OS never backs them with RAM; resident memory is about the total .text size of the modules.
+// Layout: one table per module, one uint32_t slot per 4-byte guest byte over the module's [base, base + size)
+// range. A slot is 0 when no function starts there, else the host function's address minus `anchor` (an address just
+// below the lowest host function), so 4 bytes are enough as long as all lifted code lies within 4 GiB, which a single
+// PE image guarantees. Memory: 4 bytes per 4 guest bytes of each module's size. The gaps between modules (the
+// fixed-address RomFS image sits between main and sdk) hold no table: a lookup first finds the module by base (two
+// modules, two compares), then indexes that module's table, so the flat-table span limit no longer applies. The gaps
+// inside a module (rodata, data, bss, alignment) are reserved but never written, so the OS never backs them with RAM.
 //
-// The table is filled once by rt_dispatch_init and then made read-only, so any number of threads read it without
+// The tables are filled once by rt_dispatch_init and then made read-only, so any number of threads read them without
 // locks or per-thread caches. Host (HLE) functions at addresses outside the modules live in a small hash table that
-// is also fixed at init; they are looked up only after the flat table misses.
+// is also fixed at init; they are looked up only after the module tables miss.
 #include "dispatch.h"
 #include "host.h"
 #include "platform/platform.h"
@@ -20,22 +21,20 @@
 #include <string.h>
 
 
-#define TABLE_SPAN_LIMIT (1ull << 30)   // guest bytes covered by the table, and its size in bytes
+#define TABLE_SPAN_LIMIT (1ull << 30)   // guest bytes covered by ONE module table, and its size in bytes
 #define HOST_CAP 8192                   // host function registry, power of two
 #define MAX_MODULES 16
 
 // Hot data read by every rt_dispatch: one cache line.
 static struct __attribute__((aligned(64))) {
-    const uint32_t *slot;
     uintptr_t anchor;
-    uint64_t lo;
-    uint64_t slots;
 } D;
 
 static const RtModule *g_mods[MAX_MODULES];   // sorted by base
+static struct { const uint32_t *slot; uint64_t base, slots, bytes; } g_t[MAX_MODULES];   // per-module tables, g_mods order
 static int g_nmods;
 static bool g_ready;
-static uint64_t g_table_bytes, g_functions;
+static uint64_t g_table_bytes, g_functions, g_lo, g_hi, g_slots;
 
 static struct { uint64_t addr; GuestFn fn; } g_host[HOST_CAP];
 static uint64_t g_nhost;
@@ -139,9 +138,6 @@ void rt_dispatch_init(const RtModule *mods, int count) {
         }
     }
     if (hi <= lo) rt_fatal("dispatch: no functions in any module");
-    if (hi - lo > TABLE_SPAN_LIMIT)
-        rt_fatal("dispatch: modules span %#llx guest bytes, over the %#llx the flat table allows",
-                 (unsigned long long)(hi - lo), TABLE_SPAN_LIMIT);
     uintptr_t anchor = (host_lo & ~(uintptr_t)15) - 16;
     if (host_hi - anchor > UINT32_MAX)
         rt_fatal("dispatch: lifted code spans %#llx host bytes; slots hold 32-bit offsets (4 GiB)",
@@ -152,28 +148,33 @@ void rt_dispatch_init(const RtModule *mods, int count) {
             rt_fatal("dispatch: host function at %#llx lies inside module %s", (unsigned long long)g_host[h].addr,
                      module_at(g_host[h].addr)->name);
 
-    uint64_t slots = (hi - lo) >> 2, bytes = (slots * 4 + 0xFFFF) & ~0xFFFFull;
-    uint32_t *slot = table_alloc(bytes);
-    if (!slot) rt_fatal("dispatch: cannot allocate a %llu-byte table", (unsigned long long)bytes);
+    g_lo = lo;
+    g_hi = hi;
+    D.anchor = anchor;
     for (int i = 0; i < g_nmods; i++) {
         const RtModule *m = g_mods[i];
+        if (m->size > TABLE_SPAN_LIMIT)
+            rt_fatal("dispatch: module %s spans %#llx guest bytes, over the %#llx one table allows", m->name,
+                     (unsigned long long)m->size, TABLE_SPAN_LIMIT);
+        uint64_t slots = m->size >> 2, bytes = (slots * 4 + 0xFFFF) & ~0xFFFFull;
+        uint32_t *slot = table_alloc(bytes);
+        if (!slot) rt_fatal("dispatch: cannot allocate the %llu-byte table of %s", (unsigned long long)bytes, m->name);
         for (uint64_t k = 0; k < m->count; k++)
-            slot[(m->addrs[k] - lo) >> 2] = (uint32_t)((uintptr_t)m->fns[k] - anchor);
+            slot[(m->addrs[k] - m->base) >> 2] = (uint32_t)((uintptr_t)m->fns[k] - anchor);
+        table_seal(slot, bytes);
+        g_t[i] = (typeof(g_t[0])){slot, m->base, slots, bytes};
+        g_table_bytes += bytes;
+        g_slots += slots;
         g_functions += m->count;
     }
-    table_seal(slot, bytes);
-
-    g_table_bytes = bytes;
-    D.slot = slot;
-    D.anchor = anchor;
-    D.lo = lo;
-    D.slots = slots;
     __atomic_store_n(&g_ready, true, __ATOMIC_RELEASE);
 }
 
 GuestFn rt_dispatch_lookup(uint64_t pc) {
-    uint64_t i = __builtin_rotateright64(pc - D.lo, 2);   // a misaligned pc lands far above D.slots
-    if (i < D.slots && D.slot[i]) return (GuestFn)(D.anchor + D.slot[i]);
+    for (int i = 0; i < g_nmods; i++) {
+        uint64_t j = __builtin_rotateright64(pc - g_t[i].base, 2);   // a pc outside the module lands far above its slots
+        if (j < g_t[i].slots && g_t[i].slot[j]) return (GuestFn)(D.anchor + g_t[i].slot[j]);
+    }
     return g_ready ? host_lookup(pc) : NULL;
 }
 
@@ -207,13 +208,16 @@ static __attribute__((noinline)) void dispatch_preempt(Cpu *c) {
 void rt_dispatch(Cpu *c) {
     if (__builtin_expect(c->thread && kern_preempt_pending(c->thread), 0))
         __attribute__((musttail)) return dispatch_preempt(c);
-    uint64_t i = __builtin_rotateright64(c->pc - D.lo, 2);
-    uint32_t off = i < D.slots ? D.slot[i] : 0;
+    uint32_t off = 0;
+    for (int i = 0; i < g_nmods && !off; i++) {
+        uint64_t j = __builtin_rotateright64(c->pc - g_t[i].base, 2);   // a pc outside the module lands far above its slots
+        off = j < g_t[i].slots ? g_t[i].slot[j] : 0;
+    }
     if (__builtin_expect(!off, 0)) __attribute__((musttail)) return dispatch_slow(c);
     GuestFn f = (GuestFn)(D.anchor + off);
     __attribute__((musttail)) return f(c);
 }
 
 RtDispatchStats rt_dispatch_stats(void) {
-    return (RtDispatchStats){D.lo, D.lo + D.slots * 4, D.slots, g_table_bytes, g_functions, g_nhost};
+    return (RtDispatchStats){g_lo, g_hi, g_slots, g_table_bytes, g_functions, g_nhost};
 }

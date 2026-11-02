@@ -493,28 +493,47 @@ static void ov_account_initialize(Cpu *c) {
     account_uid(uid);
 }
 
+// Holding account_lock.
+static int open_local(UserHandle *out) {
+    load_uid();
+    for (int i = 0; i < 64; i++)
+        if (!tokens[i]) {
+            tokens[i] = next_token++;
+            *out = (UserHandle){local, tokens[i]};
+            return 1;
+        }
+    return 0;
+}
+
 // bool TryOpenPreselectedUser(UserHandle *out)
 static void ov_open_user(Cpu *c) {
     UserHandle *out = arg_p(c, 0);
     if (!out) rt_fatal("nn::account::TryOpenPreselectedUser: null handle");
     plat_mutex_lock(&account_lock);
-    load_uid();
-    int ok = 0;
-    for (int i = 0; i < 64 && !ok; i++)
-        if (!tokens[i]) {
-            tokens[i] = next_token++;
-            *out = (UserHandle){local, tokens[i]};
-            ok = 1;
-        }
+    int ok = open_local(out);
     plat_mutex_unlock(&account_lock);
     ret_x(c, (uint64_t)ok);
+}
+
+// Result OpenUser(UserHandle *out, const Uid &), Result OpenPreselectedUser(UserHandle *out)
+static void ov_open_user_result(Cpu *c) {
+    UserHandle *out = arg_p(c, 0);
+    if (!out) { ret_x(c, ACCOUNT_R_INVALID); return; }
+    plat_mutex_lock(&account_lock);
+    int ok = open_local(out);
+    plat_mutex_unlock(&account_lock);
+    ret_x(c, ok ? 0 : ACCOUNT_R_INVALID);
 }
 
 // void CloseUser(const UserHandle &)
 static void ov_close_user(Cpu *c) {
     const UserHandle *h = arg_p(c, 0);
     plat_mutex_lock(&account_lock);
-    if (!valid_handle(h)) rt_fatal("nn::account::CloseUser: not an open user handle");
+    if (!valid_handle(h)) {   // the game closes a stack slot it expects from an earlier step; tolerate it
+        plat_mutex_unlock(&account_lock);
+        rt_log("account: CloseUser of a handle that is not open (ignored)");
+        return;
+    }
     for (int i = 0; i < 64; i++)
         if (tokens[i] == h->token) tokens[i] = 0;
     plat_mutex_unlock(&account_lock);
@@ -916,10 +935,20 @@ HOST_OBSERVER("nnMain", obs_main);
 
 HOST_OVERRIDE("_ZN2nn7account10InitializeEv", ov_account_initialize);
 HOST_OVERRIDE("_ZN2nn7account22TryOpenPreselectedUserEPNS0_10UserHandleE", ov_open_user);
+HOST_OVERRIDE("_ZN2nn7account19OpenPreselectedUserEPNS0_10UserHandleE", ov_open_user_result);
+HOST_OVERRIDE("_ZN2nn7account8OpenUserEPNS0_10UserHandleERKNS0_3UidE", ov_open_user_result);
 HOST_OVERRIDE("_ZN2nn7account9CloseUserERKNS0_10UserHandleE", ov_close_user);
 HOST_OVERRIDE("_ZN2nn7account9GetUserIdEPNS0_3UidERKNS0_10UserHandleE", ov_user_id);
 HOST_OVERRIDE("_ZN2nn7account16GetUserExistenceEPbRKNS0_3UidE", ov_user_existence);
 HOST_OVERRIDE("_ZN2nn7account11GetNicknameEPNS0_8NicknameERKNS0_3UidE", ov_nickname);
+// friends::UserPresence::Initialize checks the account through ListOpenUsers, which the account service does not
+// implement; the port has no friends service, so accept the call.
+static void ov_friends_initialize(Cpu *c) { c->x[0] = 0; }
+HOST_OVERRIDE("_ZN2nn7friends12UserPresence10InitializeERKNS_7account3UidE", ov_friends_initialize);
+
+// nn::fs::EnsureSaveData: the save mount creates the directory on first use (fs_host.c), so the check is a success.
+static void ov_ensure_save_data(Cpu *c) { c->x[0] = 0; }
+HOST_OVERRIDE("_ZN2nn2fs14EnsureSaveDataERKNS_7account3UidE", ov_ensure_save_data);
 
 HOST_OVERRIDE("_ZN2nn4time10InitializeEv", ov_time_initialize);
 HOST_OVERRIDE("_ZN2nn4time8FinalizeEv", ov_time_finalize);

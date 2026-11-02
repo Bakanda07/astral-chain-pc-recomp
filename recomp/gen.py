@@ -44,11 +44,12 @@ import jumptables  # noqa: E402
 import patches  # noqa: E402
 import regs  # noqa: E402
 from check_content import GENERATED_MARKER  # noqa: E402
-from layout import layout, write as write_layout  # noqa: E402
+from layout import layout, romfs_size, write as write_layout  # noqa: E402
 from lifter import hx  # noqa: E402
 from module import Module  # noqa: E402
 
 TERMINATORS = ('b', 'br', 'ret', 'trap')
+
 MUSTTAIL = '__attribute__((musttail)) return'
 
 # Estimated bytes of C per instruction, by class, for chunking (estimate_sizes()).
@@ -662,7 +663,7 @@ def main():
 
     t0 = time.perf_counter()
     mods = layout(args.exefs)
-    write_layout(mods, args.out)
+    write_layout(mods, args.out, romfs_size(args.exefs))
     table = patches.load(args.patches, mods) if args.patches else patches.Table()
     write_if_changed(args.out / 'patches.h', patches.header_text(table, GENERATED_MARKER))
     want = args.modules.split(',')

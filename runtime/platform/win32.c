@@ -610,17 +610,31 @@ uint64_t plat_mem_written(uint64_t addr, uint64_t n, uint64_t *pages, uint64_t m
 }
 
 static int (*fault_hook)(uint64_t addr);
+static int (*read_fault_hook)(uint64_t addr);
 
-// A write access violation (ExceptionInformation[0] == 1) goes to the hook; registered first, before the crash handler.
+// A write access violation (ExceptionInformation[0] == 1) goes to the write hook, a read access violation
+// (ExceptionInformation[0] == 0) to the read hook (romfs.c pages the RomFS image in on demand); registered
+// first, before the crash handler.
 static LONG CALLBACK fault_veh(EXCEPTION_POINTERS *ep) {
     const EXCEPTION_RECORD *er = ep->ExceptionRecord;
-    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2 || er->ExceptionInformation[0] != 1)
+    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2)
         return EXCEPTION_CONTINUE_SEARCH;
-    return fault_hook((uint64_t)er->ExceptionInformation[1]) ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
+    uint64_t addr = (uint64_t)er->ExceptionInformation[1];
+    if (er->ExceptionInformation[0] == 1) {
+        if (fault_hook && fault_hook(addr)) return EXCEPTION_CONTINUE_EXECUTION;
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (read_fault_hook && read_fault_hook(addr)) return EXCEPTION_CONTINUE_EXECUTION;
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 void plat_mem_fault_hook(int (*fn)(uint64_t addr)) {
     fault_hook = fn;
+    AddVectoredExceptionHandler(1, fault_veh);
+}
+
+void plat_mem_read_fault_hook(int (*fn)(uint64_t addr)) {
+    read_fault_hook = fn;
     AddVectoredExceptionHandler(1, fault_veh);
 }
 

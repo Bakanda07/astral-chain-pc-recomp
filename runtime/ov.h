@@ -15,6 +15,17 @@ const char *ov_language(void);             // the game's language, a Switch lang
 // ---- ov_settings.c
 void settings_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "set" (settings:u)
 
+// ---- ov_hwopus.c
+void hwopus_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "hwopus"
+
+// ---- ov_nifm.c
+void nifm_user_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "nifm:u"
+
+// ---- ov_audout.c
+void audout_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "audout:u"
+
+// ---- ov_prepo.c
+void prepo_manager_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);    // "prepo:u"
 // ---- ov_hid.c
 void hid_server_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // "hid" (IHidServer)
 const char *ov_shared_font_dir(char *buf, size_t n);   // AC_SHARED_FONTS, else <romfs>/../../firmware/shared-fonts

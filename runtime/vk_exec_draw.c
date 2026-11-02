@@ -145,7 +145,7 @@ typedef struct { int cls, use; uint64_t bytes; } RsCount;
 static struct {
     int on;                              // AC_BIND_SKIP: 1 skip (default), 2 check, 0 off
     uint32_t hn;                         // words of h the last signature filled; 0: none
-    uint64_t h[24];                      // generations, feedback images, support inputs, base instance
+    uint64_t h[32];                      // generations, programs, feedback images, support inputs, base instance
     const VkPipeInfo *info;              // the pipeline whose RsList ranges body holds, as of bind op generation gen
     uint64_t gen;
     uint8_t body[RS_BYTES];
@@ -707,6 +707,11 @@ static void answers_for(VkExec *ex, int st, const uint8_t *ctl, uint32_t mask, G
     if (locked) vk_texture_unlock();
 }
 
+// The program bound for a stage, falling back to the last bound program for back ends that bind both stages at once.
+static const prog_t *stage_prog(const VkExec *ex, int st) {
+    return st >= 0 && st < 6 && ex->prog_stage[st] ? ex->prog_stage[st] : ex->prog;
+}
+
 // *present: the program has this stage. Returns NULL when it has not or the translation failed. pending (graphics
 // stages, vk_pipeline_async_on): a shader not translated yet is queued and NULL returned with *pending = 1. await: a
 // shader queued earlier is waited for (gfx_shader_await) instead.
@@ -715,10 +720,11 @@ static const GfxShader *shader_for(VkExec *ex, int st, int *present, int *pendin
     uint32_t len;
     *present = 0;
     if (pending) *pending = 0;
-    if (!ex->prog || !find_stage(ex->prog, st, &ctl, &code, &len)) return NULL;
+    const prog_t *p = stage_prog(ex, st);
+    if (!p || !find_stage(p, st, &ctl, &code, &len)) return NULL;
     *present = 1;
     GfxShaderAnswers a;
-    uint64_t serial = ex->prog->serial;
+    uint64_t serial = p->serial;
     answers_for(ex, st, ctl, slot_mask_of(serial, st), &a);
     ShaderEnt *set = NULL;
     if (serial) {
@@ -882,7 +888,8 @@ static VkDescriptorBufferInfo ubo_info(VkExec *ex, int st, int slot) {
     if (slot == 1 && ex->prog) {   // compiler constants stored after the shader code
         const uint8_t *ctl, *code;
         uint32_t len, c1;
-        if (find_stage(ex->prog, st, &ctl, &code, &len)) {
+        const prog_t *p = stage_prog(ex, st);
+        if (p && find_stage(p, st, &ctl, &code, &len)) {
             memcpy(&c1, ctl + 0x700, 4);
             if (c1 < len && bind_range(ex, (uint64_t)(uintptr_t)code + c1, len - c1, align, max, VK_MUSE_UBO, 0, &bi))
                 return bi;
@@ -1646,8 +1653,13 @@ static int bind_sig(const VkExec *ex, const VkPipeInfo *info) {
     uint32_t n = 0;
 #define PUT(v) do { uint64_t v_ = (uint64_t)(v); diff |= h[n] ^ v_; h[n++] = v_; } while (0)
     PUT((uintptr_t)info);
-    PUT((uintptr_t)ex->prog);
-    PUT(ex->prog->serial);
+    {
+        const prog_t *pv = stage_prog(ex, NVN_STAGE_VS), *pf = stage_prog(ex, NVN_STAGE_FS);
+        PUT((uintptr_t)pv);
+        PUT(pv ? pv->serial : 0);
+        PUT((uintptr_t)pf);
+        PUT(pf ? pf->serial : 0);
+    }
     PUT((uint64_t)vk_texture_slots_gen() << 32 | vk_texture_epoch());
     PUT((uint64_t)vk_sampler_gen() << 32 | (uint32_t)ex->nfbl);
     PUT(vk_mem_gen() + vk_usnap_gen());   // both only grow
@@ -2004,8 +2016,8 @@ static int pipe_skip_mode(void) {
 // tex_serial (bumped by every texture and image bind) equal to the key's means the handles were not rebound since
 // they were compared, so the 1 KiB compare is skipped; a rebind to the same handles still matches by the compare.
 typedef struct {
-    const prog_t *prog;
-    uint64_t serial;
+    const prog_t *prog[2];               // VS, FS: Astral Chain binds them separately
+    uint64_t serial[2];
     uint32_t gen, tex_serial;
     uint64_t tex[2][32], img[2][32];
     VkPipeState pipe;
@@ -2013,15 +2025,19 @@ typedef struct {
 static struct { int on, valid, has_fs; MemoKey k; const GfxShader *vs, *fs; } SM = {-1};
 
 static void memo_key(const VkExec *ex, uint32_t gen, MemoKey *k) {
-    k->prog = ex->prog, k->serial = ex->prog->serial, k->gen = gen, k->tex_serial = ex->tex_serial;
+    const prog_t *p[2] = {stage_prog(ex, NVN_STAGE_VS), stage_prog(ex, NVN_STAGE_FS)};
+    for (int i = 0; i < 2; i++) k->prog[i] = p[i], k->serial[i] = p[i] ? p[i]->serial : 0;
+    k->gen = gen, k->tex_serial = ex->tex_serial;
     memcpy(k->tex[0], ex->tex[NVN_STAGE_VS], sizeof k->tex[0]), memcpy(k->tex[1], ex->tex[NVN_STAGE_FS], sizeof k->tex[1]);
     memcpy(k->img[0], ex->img[NVN_STAGE_VS], sizeof k->img[0]), memcpy(k->img[1], ex->img[NVN_STAGE_FS], sizeof k->img[1]);
     memcpy(&k->pipe, &ex->pipe, sizeof k->pipe);
 }
 
 static int memo_match(const VkExec *ex, uint32_t gen, MemoKey *k) {
-    if (k->prog != ex->prog || k->serial != ex->prog->serial || k->gen != gen || memcmp(&k->pipe, &ex->pipe, sizeof k->pipe))
-        return 0;
+    const prog_t *p[2] = {stage_prog(ex, NVN_STAGE_VS), stage_prog(ex, NVN_STAGE_FS)};
+    for (int i = 0; i < 2; i++)
+        if (k->prog[i] != p[i] || k->serial[i] != (p[i] ? p[i]->serial : 0)) return 0;
+    if (k->gen != gen || memcmp(&k->pipe, &ex->pipe, sizeof k->pipe)) return 0;
     if (k->tex_serial == ex->tex_serial) return 1;
     if (memcmp(k->tex[0], ex->tex[NVN_STAGE_VS], sizeof k->tex[0]) || memcmp(k->tex[1], ex->tex[NVN_STAGE_FS], sizeof k->tex[1]) ||
         memcmp(k->img[0], ex->img[NVN_STAGE_VS], sizeof k->img[0]) || memcmp(k->img[1], ex->img[NVN_STAGE_FS], sizeof k->img[1]))
@@ -2389,6 +2405,12 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
     case OP_BIND_PROGRAM: {
         const p_bind_program *b = payload;
         ex->prog = b->prog, ex->prog_stages = b->stages;
+        // Astral Chain binds a vertex program and a fragment program separately, each with its stage bit; the
+        // last program alone therefore has no vertex stage. Keep the program of every stage the mask names.
+        uint32_t mask = (uint32_t)b->stages;
+        if (!mask || mask == NVN_SHADER_STAGE_BITS_LARGE) mask = 0x3f;
+        for (int i = 0; i < 6; i++)
+            if (mask & (1u << i)) ex->prog_stage[i] = b->prog;
         bind_gen++;
         break;
     }

@@ -1,0 +1,33 @@
+# main: 32 spin waits
+spin main 3dc514 3dc518   # 2 instructions; loads
+spin main 3df7c8 3df7cc   # 2 instructions; loads
+spin main 3dfc64 3dfc68   # 2 instructions; loads
+spin main 3dff4c 3dff50   # 2 instructions; loads
+spin main 4b748c 4b751c   # 6 instructions; loads
+spin main 4f68cc 4f68e8   # 5 instructions; loads
+spin main 4f69e0 4f69fc   # 5 instructions; loads
+spin main 525d04 525d20   # 5 instructions; loads
+spin main 579c64 579c68   # 2 instructions; loads
+spin main 7242ac 7242e8   # 16 instructions; loads
+spin main 7910a8 7910b0   # 3 instructions; loads
+spin main 791568 791570   # 3 instructions; loads
+spin main 791624 79162c   # 3 instructions; loads
+spin main 799d68 799d70   # 3 instructions; loads
+spin main 799eb8 799ec0   # 3 instructions; loads
+spin main 799f80 799f88   # 3 instructions; loads
+spin main 79a128 79a130   # 3 instructions; loads
+spin main 79a1c0 79a1c8   # 3 instructions; loads
+spin main 79a360 79a368   # 3 instructions; loads
+spin main 79a688 79a690   # 3 instructions; loads
+spin main 79a7f0 79a7f8   # 3 instructions; loads
+spin main 7b796c 7b79a8   # 16 instructions; loads
+spin main 7e3f84 7e3f8c   # 3 instructions; loads
+spin main 7f4174 7f4294   # 2 instructions; loads
+spin main 7f4390 7f44b0   # 2 instructions; loads
+spin main 8053dc 8053e4   # 3 instructions; loads
+spin main 805888 805890   # 3 instructions; loads
+spin main 8065bc 8065c4   # 3 instructions; loads
+spin main 80f374 80f37c   # 3 instructions; loads
+spin main 83f734 83f8f0 83f904   # 36 instructions; loads
+spin main 864c50 864c88   # 14 instructions; loads
+spin main 9920d4 9920fc   # 5 instructions; loads

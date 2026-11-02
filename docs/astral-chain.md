@@ -76,3 +76,26 @@ Watch at runtime:
 - Three R_AARCH64_RELATIVE relocations in main's .rodata point at module base +0/+1 (the MOD0 header itself).
   recomp/module.py seeds() now ignores RELATIVE addends below 0x24 so the lifter no longer decodes header words
   as code (fix for the bogus `rt_udf` at 0x7000000014).
+
+## RomFS: fixed image address
+
+- Unlike TotK, Astral Chain never opens RomFS files through nn::fs (the boot traces only
+  QueryMountRomCacheSize and MountRom). The game parses the RomFS image in memory at the fixed address
+  **0x7000d1b000** (hardcoded in the content manager, f_70005693e0, and passed to the reader init
+  f_70000001c0). The MountRom cache pointer the game passes is just scratch; the image itself must be
+  mapped at that address.
+- The host does not map the file directly: `MapViewOfFileEx` needs a 64 KiB-aligned base and 0x7000d1b000 is
+  not. `recomp/layout.py` reserves `[ROMFS_BASE, ROMFS_BASE + ROMFS_SIZE)` between main and sdk, and
+  `runtime/romfs.c` `romfs_read_fault` commits each 4 KiB page on the first guest read and fills it from
+  `romfs.bin`. The image is ~10.3 GB, so sdk starts above the image; `runtime/host.h` keeps the kernel at
+  0x7268400000 and the host-function window at 0x7300000000. Regenerating after changing layout.py is
+  mandatory (all absolute addresses change).
+- `nn::fs::MountRom` receives a cache buffer, and the SDK parses the RomFS metadata from it, not from the
+  image. `runtime/romfs.c` `ov_mount_rom` builds that cache: the 0x50-byte header followed by the four
+  directory/file hash and metadata tables with their offsets rebased into the cache. `QueryMountRomCacheSize`
+  returns the aligned size. Without this the SDK reports an empty RomFS and the game's file table stays empty.
+- The game lists directories with a trailing slash (`Contents:/st8/`); `romfs_dir_list` trims it and also
+  accepts the mount root, so every nested archive is enumerated.
+- The game's resource pipeline (registry hash at [main+0xda8000+0x3e0/+0x428], file table at +0x370,
+  IO queue at +0x3e8) registers entries found by parsing the image; the entryPoint looks up
+  "shader2.dat" in the registry and fails the boot if it is not registered and loaded.

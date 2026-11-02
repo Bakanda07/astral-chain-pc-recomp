@@ -4,6 +4,7 @@ Static recompilation of *Astral Chain* (Switch, ARM64) into a native Windows x86
 on the pipeline of the TotK Recomp project (see `docs/astral-chain.md` for port notes). Design: `docs/architecture.md`.
 Toolchain, build commands and tests: `docs/building.md`.
 
+
 ## Priorities
 
 - **Performance first**: Astral Chain is a fast PlatinumGames action game. Frame-time budgets are a feature: keep the
@@ -52,3 +53,7 @@ This repository is public. Game data lives outside it and every derived file sta
 ## Writing
 
 Code, comments, docs and commit messages are in English. Commit messages are plain sentences without type prefixes.
+
+## About "Eglantine" subfolder
+
+Eglantine is a free and opensource (FOSS) Switch 2 emulator, derived from Eden, Yuzu and Sudachi - started by developer Camille LaVey. It's written in C++ with portability in mind, with builds for Windows, Linux and macOS. You can refer to this repo to find relevant code such as missing services or anything else, but use subagents to process the code since the codebase is large

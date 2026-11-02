@@ -47,6 +47,7 @@ struct IpcSession {
     void *state;
     void (*close)(void *state);
     int32_t refs;
+    int domain;                // CMIF ConvertToDomain ran: requests carry a DomainMessageHeader
 };
 
 uint32_t ipc_session_new(const char *name, IpcHandler handler, void *state, void (*close)(void *state));   // handle

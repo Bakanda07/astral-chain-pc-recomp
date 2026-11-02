@@ -80,26 +80,46 @@ static void ov_style_set(Cpu *c) {
 
 // int GetNpadStates(<State> *out, int count, const NpadIdType &id): the newest state only. want: the style of the
 // overload, 0 for the Joy-Con overloads (never connected).
+static int npad_state(uint32_t want, uint32_t id, NpadState *s) {
+    plat_mutex_lock(&lock);
+    *s = (NpadState){.sampling = ++sample};
+    int live = want && enabled && allowed && id == pad_id() && want == pad_style() && (styles & want);
+    plat_mutex_unlock(&lock);
+    if (live) {
+        s->attributes = ATTR_CONNECTED;
+        input_poll(&s->buttons, &s->lx, &s->ly, &s->rx, &s->ry);
+    }
+    return live;
+}
+
 static void npad_states(Cpu *c, uint32_t want) {
     NpadState *out = arg_p(c, 0);
     int max = (int)arg_x(c, 1);
     uint32_t id = *need_id(c, 2, "GetNpadStates");
     if (max <= 0) { ret_x(c, 0); return; }
     if (!out) rt_fatal("nn::hid::GetNpadStates: null output");
-    plat_mutex_lock(&lock);
-    NpadState s = {.sampling = ++sample};
-    int live = want && enabled && allowed && id == pad_id() && want == pad_style() && (styles & want);
-    plat_mutex_unlock(&lock);
-    if (live) {
-        s.attributes = ATTR_CONNECTED;
-        input_poll(&s.buttons, &s.lx, &s.ly, &s.rx, &s.ry);
-    }
+    NpadState s;
+    npad_state(want, id, &s);
     *out = s;
     ret_x(c, 1);
 }
 static void ov_states_full_key(Cpu *c) { npad_states(c, STYLE_FULL_KEY); }
 static void ov_states_handheld(Cpu *c) { npad_states(c, STYLE_HANDHELD); }
 static void ov_states_joycon(Cpu *c) { npad_states(c, 0); }
+
+// Result GetNpadState(<State> *out, const NpadIdType &id): the singular form the SDK's own GetNpadStates would serve.
+static void npad_state_single(Cpu *c, uint32_t want) {
+    NpadState *out = arg_p(c, 0);
+    uint32_t id = *need_id(c, 1, "GetNpadState");
+    if (!out) rt_fatal("nn::hid::GetNpadState: null output");
+    NpadState s;
+    npad_state(want, id, &s);
+    *out = s;
+    ret_x(c, 0);
+}
+static void ov_state_full_key(Cpu *c) { npad_state_single(c, STYLE_FULL_KEY); }
+static void ov_state_handheld(Cpu *c) { npad_state_single(c, STYLE_HANDHELD); }
+static void ov_state_joycon(Cpu *c) { npad_state_single(c, 0); }
 
 // void SetNpadJoyHoldType(NpadJoyHoldType type)
 static void ov_hold_type(Cpu *c) {
@@ -171,6 +191,17 @@ static void ov_mouse_states(Cpu *c) {
     *out = (MouseState){.sampling = ++sample};
     plat_mutex_unlock(&lock);
     ret_x(c, 1);
+}
+
+// Result GetMouseState(MouseState *out): the singular form of the same empty mouse.
+static void ov_mouse_state(Cpu *c) {
+    MouseState *out = arg_p(c, 0);
+    if (!out) rt_fatal("nn::hid::GetMouseState: null output");
+    plat_mutex_lock(&lock);
+    if (!mouse_ready) rt_fatal("nn::hid::GetMouseState before InitializeMouse");
+    *out = (MouseState){.sampling = ++sample};
+    plat_mutex_unlock(&lock);
+    ret_x(c, 0);
 }
 
 // void GetKeyboardState(KeyboardState *out): a keyboard with no key down
@@ -506,6 +537,11 @@ HOST_OVERRIDE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", ov_state
 HOST_OVERRIDE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj", ov_states_joycon);
 HOST_OVERRIDE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj", ov_states_joycon);
 HOST_OVERRIDE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadHandheldStateEiRKj", ov_states_handheld);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", ov_state_full_key);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyDualStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", ov_state_handheld);
 HOST_OVERRIDE("_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE", ov_hold_type);
 HOST_OVERRIDE("_ZN2nn3hid14DisconnectNpadERKj", ov_disconnect);
 HOST_OVERRIDE("_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoERKNS0_20ControllerSupportArgE",
@@ -516,6 +552,7 @@ HOST_OVERRIDE("_ZN2nn3hid18InitializeKeyboardEv", ov_initialize_keyboard);
 HOST_OVERRIDE("_ZN2nn3hid21InitializeTouchScreenEv", ov_initialize_touch);
 HOST_OVERRIDE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", ov_touch_states);
 HOST_OVERRIDE("_ZN2nn3hid14GetMouseStatesEPNS0_10MouseStateEi", ov_mouse_states);
+HOST_OVERRIDE("_ZN2nn3hid13GetMouseStateEPNS0_10MouseStateE", ov_mouse_state);
 HOST_OVERRIDE("_ZN2nn3hid16GetKeyboardStateEPNS0_13KeyboardStateE", ov_keyboard_state);
 HOST_OVERRIDE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_"
               "12NpadStyleTagEEE", ov_vibration_handles);

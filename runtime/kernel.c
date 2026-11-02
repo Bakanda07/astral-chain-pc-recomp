@@ -2236,16 +2236,21 @@ void kern_fiber_finalize(Cpu *c) {
 void kern_fiber_switch(Cpu *c) {
     RtThread *t = tcur;
     if (!t) rt_fatal("SwitchToFiber on a host thread");
+    // GetCurrentFiber on the thread's own context returns the thread's token; switching to it goes back to the thread.
+    if (c->x[0] == (uint64_t)(uintptr_t)t) {
+        if (t->fiber) fiber_switch_to(t, c, NULL);
+        return;
+    }
     Fiber *to = fiber_find(c->x[0]);
     if (!to) rt_fatal("SwitchToFiber(%#llx): not an initialized fiber", (unsigned long long)c->x[0]);
     if (to == t->fiber) return;
     fiber_switch_to(t, c, to);
 }
 
-// GetCurrentFiber() -> x0, NULL on the thread's own context
+// GetCurrentFiber() -> x0, the thread's token on its own context
 void kern_fiber_current(Cpu *c) {
     RtThread *t = tcur;
-    c->x[0] = t && t->fiber ? t->fiber->addr : 0;
+    c->x[0] = t ? (t->fiber ? t->fiber->addr : (uint64_t)(uintptr_t)t) : 0;
 }
 
 HOST_OVERRIDE(KERN_SYM_INITIALIZE_FIBER, kern_fiber_initialize);

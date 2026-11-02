@@ -73,9 +73,13 @@ void rt_sha256(const void *p, size_t n, uint8_t out[32]);   // BCrypt; fatal if 
 
 // ---- guest address map (fixed part)
 #define RT_ADDRESS_LIMIT (1ull << 39)
-#define RT_KERNEL_BASE 0x7010000000ull
+#define RT_KERNEL_BASE 0x7268400000ull                      // above the modules: main + the RomFS image + sdk end
+                                                             // around 0x7268275000 (layout.py puts sdk past the image)
+
 #define RT_KERNEL_SIZE 0x10000000ull
-#define RT_HOSTFN_BASE 0x7020000000ull
+#define RT_HOSTFN_BASE 0x7300000000ull                      // well above the kernel region; Windows rounds the kernel
+                                                            // reservation up to a 256 MiB boundary, so anything right
+                                                            // after it collides (seen as ERROR_INVALID_ADDRESS)
 #define RT_HOSTFN_SIZE 0x100000ull
 
 // ---- AAPCS64 argument access for host functions (section 2.2)
@@ -127,7 +131,7 @@ uint64_t rt_call(Cpu *c, uint64_t fn, int n, ...);         // host -> guest, sec
                                                            // as uint64_t: cast every argument. Seals the dispatch
                                                            // table on first use. Sets x30 = RT_RET_HOST, restores
                                                            // x30 and pc, returns x0. Does not touch sp
-#define RT_RET_HOST 0x70200ff000ull                        // x30 sentinel inside the host-function window; a jump to
+#define RT_RET_HOST 0x73000ff000ull                        // x30 sentinel inside the host-function window; a jump to
                                                            // it is a named fatal
 
 // ---- guest memory (memory.c)
