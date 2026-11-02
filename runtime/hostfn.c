@@ -3,7 +3,7 @@
 // linker tables, the registry behind them, and the calls between host and guest (rt_call, rt_original).
 //
 // Every registered function dispatches through hostfn_entry, which counts the call, traces the first one
-// (TOTK_TRACE=host) and tail-calls the real function. The registry is fixed by hostfn_seal, which builds the dispatch
+// (AC_TRACE=host) and tail-calls the real function. The registry is fixed by hostfn_seal, which builds the dispatch
 // table; guest threads start after that, so lookups need no lock.
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,14 +21,7 @@ __attribute__((section(".ovr$z"), used)) static const RtHostEntry ovr_stop[1];
 __attribute__((section(".obs$a"), used)) static const RtHostEntry obs_start[1];
 __attribute__((section(".obs$z"), used)) static const RtHostEntry obs_stop[1];
 #else
-// ELF: the linker defines __start_<section> and __stop_<section> around a section named like a C identifier. Weak: a
-// build without observers has no such section, and both bounds are then NULL.
-extern const RtHostEntry __start_totk_ovr[] __attribute__((weak)), __stop_totk_ovr[] __attribute__((weak));
-extern const RtHostEntry __start_totk_obs[] __attribute__((weak)), __stop_totk_obs[] __attribute__((weak));
-#define ovr_start __start_totk_ovr
-#define ovr_stop __stop_totk_ovr
-#define obs_start __start_totk_obs
-#define obs_stop __stop_totk_obs
+#error "this port is Windows-only; hostfn.c has no ELF section brackets"
 #endif
 
 typedef struct {
@@ -133,7 +126,7 @@ __attribute__((noinline)) static void hostfn_tracked(Cpu *c, GuestFn fn) {
 }
 
 // nn::fs: the call waits for the disk and the OS, and on the Switch it is an IPC request that blocks its thread, so
-// the thread gives its virtual core up for it. TOTK_CORE_DIAG found the game's loader threads (priority 58) holding
+// the thread gives its virtual core up for it. AC_CORE_DIAG found the game's loader threads (priority 58) holding
 // a core through CloseFile and CreateCacheStorage while job workers and better threads waited 2-6 ms for it.
 __attribute__((noinline)) static void hostfn_blocking(Cpu *c, GuestFn fn) {
     int away = kern_core_away();

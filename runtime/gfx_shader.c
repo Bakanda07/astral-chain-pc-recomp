@@ -1,6 +1,6 @@
 // Shader service client: turns an NVN program (control section, code, c1 constants and the
 // translator's answers) into SPIR-V plus reflection through `totk_xlate.exe --serve` children, started lazily with
-// pipes and kept for the life of the process (a pool: TOTK_XLATE_PROCS at run time, more for the boot prewarm).
+// pipes and kept for the life of the process (a pool: AC_XLATE_PROCS at run time, more for the boot prewarm).
 // Results are cached in memory and on disk (shader-cache/<key>.spv and <key>.res.json next to totk.exe), so a shader
 // is translated once per machine and translator.
 //
@@ -14,7 +14,7 @@
 // translated under a provisional key ("TKSP", full answers); its files are renamed to the cache key and the mask stored.
 //
 // Translator identity: build/xlate/totk_xlate.id, sha256 hex that tools/build_xlate.py writes over the sources it
-// builds from (Program.cs, the csproj, the patches, the vendor tree); without it the sha256 of the exe. TOTK_XLATE_ID
+// builds from (Program.cs, the csproj, the patches, the vendor tree); without it the sha256 of the exe. AC_XLATE_ID
 // (64 hex digits) overrides it. A translator change therefore changes every cache key without a hand-made KEY_VERSION
 // bump; KEY_VERSION is for changes on this side (key layout, how the output is used).
 //
@@ -245,12 +245,12 @@ static int hex32(const char *h, uint8_t out[32]) {        // 64 hex digits, then
     return 1;
 }
 
-// TOTK_XLATE_ID (64 hex digits, or any other text, which is hashed), else <translator>.id next to the exe
+// AC_XLATE_ID (64 hex digits, or any other text, which is hashed), else <translator>.id next to the exe
 // (tools/build_xlate.py), else the sha256 of the exe.
 static void xlate_identity(void) {
     char text[256] = "";
-    const char *how = "TOTK_XLATE_ID";
-    const char *id_env = cfg_get("TOTK_XLATE_ID");
+    const char *how = "AC_XLATE_ID";
+    const char *id_env = cfg_get("AC_XLATE_ID");
     if (id_env && *id_env && strlen(id_env) < sizeof text) {
         strcpy(text, id_env);
         if (!hex32(text, xlate_id)) rt_sha256(text, strlen(text), xlate_id);
@@ -295,7 +295,7 @@ static void init_paths(void *param) {
             }
         }
     }
-    const char *xlate_cfg = cfg_get("TOTK_XLATE"), *cache_cfg = cfg_get("TOTK_SHADER_CACHE");
+    const char *xlate_cfg = cfg_get("AC_XLATE"), *cache_cfg = cfg_get("AC_SHADER_CACHE");
     char beside[PATH_CAP + 32];   // a packaged folder (tools/package_build.py) keeps the translator next to totk.exe
     if (exe_dir[0]) snprintf(beside, sizeof beside, "%s/totk_xlate" PLAT_EXE_SUFFIX, exe_dir);
     if (xlate_cfg && *xlate_cfg && strlen(xlate_cfg) < sizeof xlate_exe) strcpy(xlate_exe, xlate_cfg);
@@ -340,7 +340,7 @@ static void child_stop(Svc *v) {
 static int child_start(Svc *v) {
     paths();
     if (!xlate_exe[0] || !file_exists(xlate_exe)) {
-        rt_log("gfx_shader: translator not found (%s); set TOTK_XLATE", xlate_exe[0] ? xlate_exe : "<none>");
+        rt_log("gfx_shader: translator not found (%s); set AC_XLATE", xlate_exe[0] ? xlate_exe : "<none>");
         return 0;
     }
     uint32_t err = 0;
@@ -379,17 +379,17 @@ static int child_exchange_raw(Svc *v, const char *line, char *reply, size_t repl
 }
 
 static int child_exchange(Svc *v, const char *line, char *reply, size_t reply_size) {
-    uint64_t p0 = perf_begin();   // TOTK_TRACE=perf: render-thread time spent translating
+    uint64_t p0 = perf_begin();   // AC_TRACE=perf: render-thread time spent translating
     int ok = child_exchange_raw(v, line, reply, reply_size);
     perf_end(PERF_XLATE, p0);
     return ok;
 }
 
-// Children allowed at run time: TOTK_XLATE_PROCS, default 2.
+// Children allowed at run time: AC_XLATE_PROCS, default 2.
 static int svc_runtime_limit(void) {
     static volatile int32_t n;
     if (!n) {
-        const char *e = cfg_get("TOTK_XLATE_PROCS");
+        const char *e = cfg_get("AC_XLATE_PROCS");
         int v = e && *e ? atoi(e) : 2;
         plat_xchg32(&n, v < 1 ? 1 : v > MAX_SVC ? MAX_SVC : v);
     }
@@ -1422,7 +1422,7 @@ static const GfxShader *get_async_one(Req r, int stage, const uint8_t *control, 
             if (plat_thread_spawn(xlate_worker, NULL, "xlate", 0)) n++;
         }
         X.started = n ? 1 : -1;
-        if (n) rt_log("gfx_shader: graphics shaders are translated by %d background workers (TOTK_XLATE_PROCS)", n);
+        if (n) rt_log("gfx_shader: graphics shaders are translated by %d background workers (AC_XLATE_PROCS)", n);
         else rt_log("gfx_shader: cannot start the translation workers; translating synchronously");
     }
     XWait **slot = wait_slot(r.key);
@@ -1654,7 +1654,7 @@ void gfx_shader_local_size(const GfxShader *s, uint32_t local[3]) { memcpy(local
 // ---- answers met in play
 // The translated-shader key includes the answers a draw's state implies, so a translation made without play (the
 // census) does not match the keys play asks for. Every (program, answers) that a gfx_shader_get* call resolves is
-// recorded next to pipeline-keys.bin, so the first-start preparation (Task 2.6, here the TOTK_TEST_PREPARE_SHADERS hook)
+// recorded next to pipeline-keys.bin, so the first-start preparation (Task 2.6, here the AC_TEST_PREPARE_SHADERS hook)
 // translates exactly the variants play needs, from these files alone:
 //   shader-answers.bin  "TOTKSANS", version, record size; records: stage (u32), code hash, input id, pack_answers bytes
 //                       of the full answers, zero padding. One record per input id: answers outside the shader's use
@@ -1865,7 +1865,7 @@ void gfx_shader_record_flush(int force) {
     free(ans.p), free(prg.p);
 }
 
-// ---- preparation from record files: the answers met in play (TOTK_TEST_PREPARE_SHADERS=1) or the seed that
+// ---- preparation from record files: the answers met in play (AC_TEST_PREPARE_SHADERS=1) or the seed that
 // tools/prepare_shaders.py writes from the MacNativeGames shader list (totk.exe --prepare-shaders). Both use the record
 // layouts above; a seed record has a zero input id (the use mask, hence the id, is the translator's to find) and its
 // pad byte holds the list priority (0 title, 1 warm-up, 2 rest).
@@ -1963,7 +1963,7 @@ void gfx_shader_prepare_recorded(int threads, int procs) {
 }
 
 // ---- prepared variants (shader-prepared.bin next to pipeline-keys.bin)
-// "TOTKSPRP", version, record size; records: stage, priority, 2 zero bytes, input id. gfx_shader_prepare_seed writes
+// "ACSPRP", version, record size; records: stage, priority, 2 zero bytes, input id. gfx_shader_prepare_seed writes
 // them in priority order, one per input id; gfx_shader_warm_list reads them at boot.
 #define PRP_VERSION 1
 #define PRP_REC 36
@@ -2023,7 +2023,7 @@ size_t gfx_shader_warm_list(GfxWarmEnt **out) {
     plat_mutex_lock(&rec_io);                      // no append meanwhile
     rec_read(RC.ans_path, "TOTKSANS", ANS_VERSION, ANS_REC, &ab, &an);
     plat_mutex_unlock(&rec_io);
-    rec_read(prp, "TOTKSPRP", PRP_VERSION, PRP_REC, &pb, &pn);
+    rec_read(prp, "ACSPRP", PRP_VERSION, PRP_REC, &pb, &pn);
     size_t na = an / ANS_REC, np = pn / PRP_REC, n = 0;
     GfxWarmEnt *e = calloc(na + np + 1, sizeof *e);
     Set64 seen = {0};

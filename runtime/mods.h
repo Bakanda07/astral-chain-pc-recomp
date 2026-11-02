@@ -1,10 +1,10 @@
-// Player mods (mods.c): one folder per mod under mods/ next to totk.exe (TOTK_MODS_DIR), unpacked as emulators take
+// Player mods (mods.c): one folder per mod under mods/ next to astralchain.exe (AC_MODS_DIR), unpacked as emulators take
 // them: <mod>/romfs, <mod>/exefs and <mod>/cheats, the Atmosphere layout (atmosphere/contents/<title id>/romfs,
 // atmosphere/exefs_patches/<name>/*.ips) or TKMM's merged output (romfs or romfslite, exefs, cheats). ExeFS patch
 // files (.ips, .pchtxt) for the game's main are patch sets the setup builds into the game (tools/exefs_patches.py),
 // switched with their mod (mods_exefs_switch). The list is scanned once at start (romfs.c overlay_init);
-// its order and switches live in totk.ini [mods] (TOTK_MODS_ORDER: names top first, separated by '|';
-// TOTK_MODS_DISABLED: names switched off). The top mod wins a file two mods replace.
+// its order and switches live in astralchain.ini [mods] (AC_MODS_ORDER: names top first, separated by '|';
+// AC_MODS_DISABLED: names switched off). The top mod wins a file two mods replace.
 #pragma once
 #include <stdint.h>
 
@@ -40,10 +40,10 @@ typedef struct {
 } ModInfo;
 
 void mods_scan(void);              // once; later calls return at once
-const char *mods_dir(void);        // the folder scanned (default: <dir of totk.exe>/mods)
+const char *mods_dir(void);        // the folder scanned (default: <dir of astralchain.exe>/mods)
 int mods_count(void);
 ModInfo *mods_at(int i);           // 0 = top of the order; NULL out of range
-// Menu edits (present path). They change the list mods_at shows and write TOTK_MODS_ORDER / TOTK_MODS_DISABLED with
+// Menu edits (present path). They change the list mods_at shows and write AC_MODS_ORDER / AC_MODS_DISABLED with
 // cfg_set; romfs.c used the start state, so they apply at the next start.
 void mods_set_enabled(int i, int on);
 void mods_move(int i, int delta);  // -1 up, +1 down; nothing at the ends

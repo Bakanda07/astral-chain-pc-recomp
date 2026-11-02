@@ -6,14 +6,14 @@
 // listed whatever it holds; what the port cannot use is its problem, shown in the menu and logged, and never stops the
 // start. romfs.c serves the RomFS files of the enabled mods, the top one winning a path.
 //
-// The order and the switches are totk.ini keys (cfg.c): TOTK_MODS_ORDER lists names top first, separated by '|' (a
+// The order and the switches are astralchain.ini keys (cfg.c): AC_MODS_ORDER lists names top first, separated by '|' (a
 // Windows file name cannot hold '|'; a folder whose name does on Linux is listed as unusable); a folder it does not name
-// goes below the named ones, by name. TOTK_MODS_DISABLED lists the switched-off names. The menu changes the list in
+// goes below the named ones, by name. AC_MODS_DISABLED lists the switched-off names. The menu changes the list in
 // place and writes both keys; the scan's state is kept to tell the menu a restart is due.
 //
 // ExeFS patch files: an .ips or .pchtxt file in the exefs folder or in atmosphere/exefs_patches/<name>/ is for the game
 // when its build id is main's (an IPS file's name, a pchtxt file's @nsobid line); others are another version's and
-// counted. The setup builds every mod's files into patch sets and writes build-cache/exefs.status next to totk.exe
+// counted. The setup builds every mod's files into patch sets and writes build-cache/exefs.status next to astralchain.exe
 // (tools/exefs_patches.py has the format): a file whose line is missing or has another content hash waits for the
 // rebuild at start (cheats.c), and its mod stays off until then.
 #include <ctype.h>
@@ -113,7 +113,7 @@ static int list_pos(const char *list, const char *name) {
     return -1;
 }
 
-static const char *order_list;   // TOTK_MODS_ORDER while sorting
+static const char *order_list;   // AC_MODS_ORDER while sorting
 static int by_order(const void *a, const void *b) {
     const ModInfo *x = a, *y = b;
     int px = list_pos(order_list, x->name), py = list_pos(order_list, y->name);
@@ -170,7 +170,7 @@ static int same_build(const char *hex, size_t n) {
     return 1;
 }
 
-// build-cache/exefs.status next to totk.exe, read once; "" when there is none.
+// build-cache/exefs.status next to astralchain.exe, read once; "" when there is none.
 static const char *exefs_status(void) {
     static char *text;
     if (text) return text;
@@ -342,7 +342,7 @@ void mods_scan(void) {
     static int done;
     if (done) return;
     done = 1;
-    const char *d = cfg_get("TOTK_MODS_DIR");
+    const char *d = cfg_get("AC_MODS_DIR");
     if (d && *d) {
         snprintf(dir, sizeof dir, "%s", d);
     } else {
@@ -360,8 +360,8 @@ void mods_scan(void) {
     }
     mods = calloc(MAX_MODS, sizeof *mods);
     if (!mods) return;
-    plat_fs_list(dir, scan_cb, (void *)cfg_get("TOTK_MODS_DISABLED"));
-    order_list = cfg_get("TOTK_MODS_ORDER");
+    plat_fs_list(dir, scan_cb, (void *)cfg_get("AC_MODS_DISABLED"));
+    order_list = cfg_get("AC_MODS_ORDER");
     qsort(mods, nmods, sizeof *mods, by_order);
     order_list = NULL;
     for (int i = 0; i < nmods; i++) {
@@ -413,7 +413,7 @@ const char *mods_dir(void) { return dir; }
 int mods_count(void) { return nmods; }
 ModInfo *mods_at(int i) { return i >= 0 && i < nmods ? &mods[i] : NULL; }
 
-// TOTK_MODS_ORDER as every listed name top first; TOTK_MODS_DISABLED as the switched-off names. A name holding '|'
+// AC_MODS_ORDER as every listed name top first; AC_MODS_DISABLED as the switched-off names. A name holding '|'
 // would split into two; it is left out of both (its mod is unusable anyway).
 static void write_keys(void) {
     size_t cap = (size_t)nmods * 257 + 1;
@@ -428,8 +428,8 @@ static void write_keys(void) {
                 strcat(off, mods[i].name);
             }
         }
-        cfg_set("TOTK_MODS_ORDER", order);
-        cfg_set("TOTK_MODS_DISABLED", off);
+        cfg_set("AC_MODS_ORDER", order);
+        cfg_set("AC_MODS_DISABLED", off);
     }
     free(order);
     free(off);

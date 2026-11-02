@@ -1,5 +1,5 @@
-// RenderDoc in-app capture (debug tool). TOTK_RDOC=<frame>[,<frame>...] captures those presented frames; TOTK_RDOC_DIR is the
-// output directory (default build/captures); TOTK_RDOC_DLL overrides the library's path (renderdoc.dll, librenderdoc.so).
+// RenderDoc in-app capture (debug tool). AC_RDOC=<frame>[,<frame>...] captures those presented frames; AC_RDOC_DIR is the
+// output directory (default build/captures); AC_RDOC_DLL overrides the library's path (renderdoc.dll, librenderdoc.so).
 // Only the API fields used are declared here (layout of RENDERDOC_API_1_4_1, renderdoc_app.h, MIT), so no RenderDoc header
 // is vendored.
 #include <stdint.h>
@@ -37,7 +37,7 @@ static int capturing;
 int rdoc_active(void) { return api != NULL; }
 
 void rdoc_init(void) {
-    const char *e = cfg_get("TOTK_RDOC");
+    const char *e = cfg_get("AC_RDOC");
     if (!e || !*e) return;
     for (const char *p = e; *p && n_targets < RDOC_MAX_FRAMES;) {
         char *end;
@@ -47,15 +47,15 @@ void rdoc_init(void) {
         p = *end == ',' ? end + 1 : end;
         if (*end != ',') break;
     }
-    if (!n_targets) { rt_log("rdoc: TOTK_RDOC=%s has no frame numbers", e); return; }
-    const char *dll = cfg_get("TOTK_RDOC_DLL");
+    if (!n_targets) { rt_log("rdoc: AC_RDOC=%s has no frame numbers", e); return; }
+    const char *dll = cfg_get("AC_RDOC_DLL");
 #ifdef _WIN32
     const char *def = "C:/Program Files/RenderDoc/renderdoc.dll";
 #else
     const char *def = "librenderdoc.so";
 #endif
     void *m = plat_lib_open(dll && *dll ? dll : def);
-    if (!m) { rt_log("rdoc: cannot load %s; set TOTK_RDOC_DLL", dll && *dll ? dll : def); return; }
+    if (!m) { rt_log("rdoc: cannot load %s; set AC_RDOC_DLL", dll && *dll ? dll : def); return; }
     int (*get_api)(int, void **) = (int (*)(int, void **))plat_lib_sym(m, "RENDERDOC_GetAPI");
     void *a = NULL;
     if (!get_api || get_api(RDOC_API_1_4_1, &a) != 1 || !a) { rt_log("rdoc: RENDERDOC_GetAPI(1.4.1) failed"); return; }
@@ -65,11 +65,11 @@ void rdoc_init(void) {
     rt_log("rdoc: AllowUnsupportedVendorExtensions -> %u", api->SetCaptureOptionU32(12, 1));
     api->SetCaptureOptionU32(8, 1);
     api->SetCaptureOptionU32(9, 1);
-    const char *dir = cfg_get("TOTK_RDOC_DIR");
+    const char *dir = cfg_get("AC_RDOC_DIR");
     char full[PLAT_PATH_MAX], tmpl[PLAT_PATH_MAX + 16];
     if (!plat_full_path(dir && *dir ? dir : "build/captures", full, sizeof full)) return;
     plat_file_mkdir_p(full);
-    snprintf(tmpl, sizeof tmpl, "%s/totk", full);
+    snprintf(tmpl, sizeof tmpl, "%s/astralchain", full);
     api->SetCaptureFilePathTemplate(tmpl);
     rt_log("rdoc: ready, %d frame(s), captures %s", n_targets, full);
 }

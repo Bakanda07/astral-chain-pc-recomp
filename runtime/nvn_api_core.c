@@ -53,7 +53,7 @@ void nvn_guest_written(uint64_t addr, uint64_t size) {
     if (size) gfx_backend()->guest_written(addr, size);
 }
 
-// memcpy of pool storage the GPU rendered into must copy what the GPU wrote: TotK moves its generated grass maps
+// memcpy of pool storage the GPU rendered into must copy what the GPU wrote: Astral Chain moves its generated grass maps
 // between pools with memcpy. Copies below 1 KiB skip the check; the copy itself is memmove, as overlapping
 // arguments are undefined for memcpy anyway.
 static void ov_memcpy(Cpu *c) {
@@ -268,7 +268,7 @@ NVN_API(nvnMemoryPoolBuilderSetStorage) {
 NVN_API(nvnMemoryPoolBuilderSetFlags) { ((pool_builder_t *)arg_p(c, 0))->flags = (uint32_t)arg_x(c, 1); }
 // NVNboolean nvnMemoryPoolInitialize(NVNmemoryPool *p, const NVNmemoryPoolBuilder *b)
 // Pool setup imports, mirrors and maps memory in the back end (the driver, VirtualAlloc): up to 20 ms on the game's
-// loader threads, which held a virtual core through it while job workers waited (TOTK_CORE_DIAG). The thread gives
+// loader threads, which held a virtual core through it while job workers waited (AC_CORE_DIAG). The thread gives
 // the core up, as for any blocking host call.
 NVN_API(nvnMemoryPoolInitialize) {
     NVN_BLOCKING();
@@ -572,7 +572,7 @@ NVN_API(nvnQueueFinish) {
     }
     gfx_backend()->cpu_synced(gfx_backend()->fence_done());
 }
-// ---------- Submit latency guard for TotK 1.2.1's per-object uniform double buffer
+// ---------- Submit latency guard for Astral Chain 1.2.1's per-object uniform double buffer
 // NVN starts the GPU when QueueSubmitCommands returns, within microseconds; here the replay into Vulkan takes 15-30 ms
 // first, and the GPU reads uniform memory only after it. The game's producer f_70008c6460 (thread 0x103e, p56)
 // rewrites the half of its per-object uniform blocks that was front until the last flip, 14-23 ms after the submit
@@ -580,12 +580,12 @@ NVN_API(nvnQueueFinish) {
 // the replay, and that frame draws other objects' matrices (phantom rocks, flat far field).
 // The guard makes the producer wait, at its commit point, until the newest submit has been replayed and completed.
 // lod_entered / lod_issued count submits that entered QueueSubmitCommands / reached the back end; lod_fence holds
-// the fence of the last LOD_RING. TOTK_LOD_GUARD=0 turns the wait off.
+// the fence of the last LOD_RING. AC_LOD_GUARD=0 turns the wait off.
 #define LOD_RING 64
 static uint64_t lod_entered, lod_issued, lod_fence[LOD_RING];
 
 // void nvnQueueSubmitCommands(NVNqueue *q, int n, const NVNcommandHandle *handles): replayed on this thread with its
-// core given up (section 2.2), or queued for the replay thread (TOTK_REPLAY_ASYNC, vk_backend.c); the newest fence
+// core given up (section 2.2), or queued for the replay thread (AC_REPLAY_ASYNC, vk_backend.c); the newest fence
 // value is what QueueFenceSync records. With the queue the fence covers replay and GPU, so the LOD guard below waits
 // for both.
 NVN_API(nvnQueueSubmitCommands) {
@@ -625,7 +625,7 @@ static void obs_release_read(Cpu *c) {
     if (lr != 0x70008c70c8ull) return;
     static int on = -1;
     if (on < 0) {
-        on = cfg_bool("TOTK_LOD_GUARD");
+        on = cfg_bool("AC_LOD_GUARD");
     }
     if (!on || *(volatile uint8_t *)(uintptr_t)(obj + 0x528) != *(volatile uint8_t *)(uintptr_t)(obj + 0x529)) return;
     uint64_t e = __atomic_load_n(&lod_entered, __ATOMIC_SEQ_CST);

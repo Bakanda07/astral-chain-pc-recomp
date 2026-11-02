@@ -1,5 +1,5 @@
 """installer/ bookkeeping with fake steps: fresh install, resume after a failure or cancel, transient steps, update
-with a newer release, totk.ini and the event stream. No game files, no tools; stdlib only.
+with a newer release, astralchain.ini and the event stream. No game files, no tools; stdlib only.
 
 Run: python tests/installer_test.py
 """
@@ -298,7 +298,7 @@ class IniTest(unittest.TestCase):
     def test_write_keeps_user_lines(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            example = d / 'totk.ini.example'
+            example = d / 'astralchain.ini.example'
             example.write_text(self.EXAMPLE)
             path = ini.write(d / '', 'en-GB', example)
             self.assertEqual(ini.get_language(path.read_text()), 'en-GB')
@@ -326,7 +326,7 @@ class CleanupTest(unittest.TestCase):
         self.expected = {'romfs': {'size': len(image), 'sha256': digest}}
         self.ctx = SimpleNamespace(reporter=Reporter(out=io.StringIO(), log_path=base / 'x.log'), dest=self.dest,
                                    temp=temp, lang='en-US', state={},
-                                   layout=SimpleNamespace(ini_example=ROOT / 'totk.ini.example', dev=False,
+                                   layout=SimpleNamespace(ini_example=ROOT / 'astralchain.ini.example', dev=False,
                                                           python=base / 'python' / 'python.exe', root=base / 'release'))
         self.saved = steps.expected_update
         steps.expected_update = lambda ctx: self.expected

@@ -35,7 +35,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_ON] = "On", [UI_MENU_OFF] = "Off", [UI_MENU_AUTO] = "Automatic", [UI_MENU_DEFAULT_MARK] = "default",
     [UI_MENU_AFTER_RESTART] = "after restart", [UI_MENU_SET_BY_ENV] = "set by environment variable",
     [UI_MENU_SAVE_FAILED] = "could not save settings",
-    [UI_MENU_VERSION] = "TotK Recomp %s, game %s",
+    [UI_MENU_VERSION] = "Astral Chain Recomp %s, game %s",
 
     [UI_MENU_FULLSCREEN] = "Fullscreen", [UI_MENU_FULLSCREEN_DESC] = "Fills the screen with the game; F11 toggles it.",
     [UI_MENU_WINDOW_SIZE] = "Window size", [UI_MENU_WINDOW_SIZE_DESC] = "Size of the game window when not fullscreen.",
@@ -122,7 +122,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                   "away. Spreads the shadow map over more ground: raise Shadow resolution with it. "
                                   "Takes effect at the next start.",
     [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS for the 3D scene (NVIDIA RTX GPUs; nvngx_dlss.dll next to totk.exe): smoother edges "
+    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS for the 3D scene (NVIDIA RTX GPUs; nvngx_dlss.dll next to astralchain.exe): smoother edges "
                           "and less shimmer. The HUD is not touched. The mode below sets the resolution it works from. Takes effect "
                           "after a restart.",
     [UI_MENU_DLSS] = "DLSS mode",
@@ -219,7 +219,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_PROMPTS_RESTART] = "prompts change after restart",
     [UI_MENU_PROMPTS_OFF_SHAPE] = "off at a game resolution not 16:9",
     [UI_MENU_PROMPTS_OFF_MODS] = "off: a RomFS mod replaces their files",
-    [UI_MENU_PROMPTS_OFF_PATCHES] = "off while TOTK_ROMFS_PATCHES is set",
+    [UI_MENU_PROMPTS_OFF_PATCHES] = "off while AC_ROMFS_PATCHES is set",
     [UI_MENU_RESTART] = "Restart now",
     [UI_MENU_RESTART_DESC] = "Closes the game and starts it again with the new prompts. Progress since your last save "
                              "is lost.",
@@ -458,7 +458,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_DEFAULT_MARK] = "по умолчанию",
     [UI_MENU_AFTER_RESTART] = "после перезапуска", [UI_MENU_SET_BY_ENV] = "задано переменной окружения",
     [UI_MENU_SAVE_FAILED] = "не удалось сохранить настройки",
-    [UI_MENU_VERSION] = "TotK Recomp %s, игра %s",
+    [UI_MENU_VERSION] = "Astral Chain Recomp %s, игра %s",
 
     [UI_MENU_FULLSCREEN] = "Полный экран", [UI_MENU_FULLSCREEN_DESC] = "Игра на весь экран; F11 переключает режим.",
     [UI_MENU_WINDOW_SIZE] = "Размер окна", [UI_MENU_WINDOW_SIZE_DESC] = "Размер окна игры вне полноэкранного режима.",
@@ -547,7 +547,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                   "Карта теней растягивается на большую площадь, поэтому вместе с этим поднимайте "
                                   "разрешение теней. Действует после перезапуска.",
     [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS для 3D-сцены (видеокарты NVIDIA RTX; nvngx_dlss.dll рядом с totk.exe): ровнее края и "
+    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS для 3D-сцены (видеокарты NVIDIA RTX; nvngx_dlss.dll рядом с astralchain.exe): ровнее края и "
                           "меньше мерцания. Интерфейс не затрагивается. Режим ниже задаёт разрешение, с которым он работает. "
                           "Действует после перезапуска.",
     [UI_MENU_DLSS] = "Режим DLSS",
@@ -641,7 +641,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_PROMPTS_RESTART] = "подсказки сменятся после перезапуска",
     [UI_MENU_PROMPTS_OFF_SHAPE] = "выкл. при разрешении игры не 16:9",
     [UI_MENU_PROMPTS_OFF_MODS] = "выкл.: мод RomFS заменяет их файлы",
-    [UI_MENU_PROMPTS_OFF_PATCHES] = "выкл., пока задан TOTK_ROMFS_PATCHES",
+    [UI_MENU_PROMPTS_OFF_PATCHES] = "выкл., пока задан AC_ROMFS_PATCHES",
     [UI_MENU_RESTART] = "Перезапустить сейчас",
     [UI_MENU_RESTART_DESC] = "Закрывает игру и запускает её снова с новыми подсказками. Прогресс после последнего "
                              "сохранения будет потерян.",
@@ -916,7 +916,7 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_DEFAULT_MARK] = "padrão",
     [UI_MENU_AFTER_RESTART] = "após reiniciar", [UI_MENU_SET_BY_ENV] = "definido por variável de ambiente",
     [UI_MENU_SAVE_FAILED] = "não foi possível salvar as configurações",
-    [UI_MENU_VERSION] = "TotK Recomp %s, jogo %s",
+    [UI_MENU_VERSION] = "Astral Chain Recomp %s, jogo %s",
 
     [UI_MENU_FULLSCREEN] = "Tela cheia", [UI_MENU_FULLSCREEN_DESC] = "O jogo ocupa a tela inteira; F11 alterna.",
     [UI_MENU_WINDOW_SIZE] = "Tamanho da janela",
@@ -1249,7 +1249,7 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_PROMPTS_RESTART] = "os ícones mudam após reiniciar",
     [UI_MENU_PROMPTS_OFF_SHAPE] = "desligados numa resolução de jogo que não é 16:9",
     [UI_MENU_PROMPTS_OFF_MODS] = "desligados: um mod de RomFS substitui os arquivos deles",
-    [UI_MENU_PROMPTS_OFF_PATCHES] = "desligados enquanto TOTK_ROMFS_PATCHES está definido",
+    [UI_MENU_PROMPTS_OFF_PATCHES] = "desligados enquanto AC_ROMFS_PATCHES está definido",
     [UI_MENU_RESTART] = "Reiniciar agora",
     [UI_MENU_RESTART_DESC] = "Fecha o jogo e o abre de novo com os novos ícones. O progresso desde o último "
                              "salvamento é perdido.",
@@ -1284,7 +1284,7 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_PCSS_DESC] = "Sombras do sol nítidas onde um objeto toca o chão e mais suaves quanto mais longe a sombra "
                           "cai (PCSS). 0 mantém o filtro do jogo. Vale no próximo início.",
     [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS para a cena 3D (placas NVIDIA RTX; nvngx_dlss.dll ao lado do totk.exe): bordas "
+    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS para a cena 3D (placas NVIDIA RTX; nvngx_dlss.dll ao lado do astralchain.exe): bordas "
                           "mais suaves e menos cintilação. O HUD não é afetado. O modo abaixo define a resolução de "
                           "onde ele parte. Vale após reiniciar.",
     [UI_MENU_DLSS] = "Modo do DLSS",
@@ -1377,7 +1377,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_AFTER_RESTART] = "重启后生效",
     [UI_MENU_SET_BY_ENV] = "由环境变量设定",
     [UI_MENU_SAVE_FAILED] = "无法保存设置",
-    [UI_MENU_VERSION] = "TotK Recomp %s，游戏 %s",
+    [UI_MENU_VERSION] = "Astral Chain Recomp %s，游戏 %s",
     [UI_MENU_FULLSCREEN] = "全屏",
     [UI_MENU_FULLSCREEN_DESC] = "游戏铺满屏幕；按 F11 切换。",
     [UI_MENU_WINDOW_SIZE] = "窗口大小",
@@ -1821,7 +1821,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_PROMPTS_RESTART] = "按键提示重启后生效",
     [UI_MENU_PROMPTS_OFF_SHAPE] = "游戏分辨率不是 16:9 时关闭",
     [UI_MENU_PROMPTS_OFF_MODS] = "已关闭：RomFS 模组替换了它们的文件",
-    [UI_MENU_PROMPTS_OFF_PATCHES] = "设置了 TOTK_ROMFS_PATCHES 时关闭",
+    [UI_MENU_PROMPTS_OFF_PATCHES] = "设置了 AC_ROMFS_PATCHES 时关闭",
     [UI_MENU_RESTART] = "立即重启",
     [UI_MENU_RESTART_DESC] = "关闭游戏并以新的按键提示重新启动。上次存档之后的进度将会丢失。",
     [UI_MENU_RESTART_CONFIRM] = "现在重启游戏？上次存档之后的进度将会丢失。",
@@ -1844,7 +1844,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_PCSS] = "柔和阴影",
     [UI_MENU_PCSS_DESC] = "物体接触地面处的太阳阴影锐利，阴影投得越远越柔和（PCSS）。0 保留游戏自身的过滤。下次启动时生效。",
     [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "用于 3D 场景的 NVIDIA DLSS（NVIDIA RTX 显卡；nvngx_dlss.dll 放在 totk.exe 旁）：边缘更平滑，闪烁更少。HUD "
+    [UI_MENU_DLAA_DESC] = "用于 3D 场景的 NVIDIA DLSS（NVIDIA RTX 显卡；nvngx_dlss.dll 放在 astralchain.exe 旁）：边缘更平滑，闪烁更少。HUD "
                           "不受影响。下方的模式决定它的工作分辨率。重启后生效。",
     [UI_MENU_DLSS] = "DLSS 模式",
     [UI_MENU_DLSS_DESC] = "DLAA 以全分辨率绘制 3D 场景。质量、平衡和性能分别以 67%、58% 和 50% 绘制，再由 DLSS 放大，以获得更高帧率；它们会取代 3D 渲染比例。重启后生效。",
@@ -1933,13 +1933,13 @@ void ui_text_visit(const char *lang, void (*visit)(void *ctx, const char *text),
         if (r->text[id] && *r->text[id]) visit(ctx, r->text[id]);
 }
 
-// The menu language, re-read when cfg_version changes. TOTK_MENU_LANG names a catalog language ("en", "ru", "pt-BR",
+// The menu language, re-read when cfg_version changes. AC_MENU_LANG names a catalog language ("en", "ru", "pt-BR",
 // "zh-Hans"); unset, it follows the system UI language, through the same code map the game language uses ("zh-CN" ->
 // "zh-Hans"). Windows names a region with it ("ru-RU"), so a tag without menu text tries its language alone ("ru"). A
 // language whose row has no menu text (only the software keyboard does) shows English, so other Windows locales keep the
 // English menu.
 static const char *resolve_menu_lang(void) {
-    const char *v = cfg_value("TOTK_MENU_LANG");
+    const char *v = cfg_value("AC_MENU_LANG");
     const char *sys = plat_ui_language();
     const char *lang = v && *v ? ui_text_lang(v) : sys && *sys ? ui_text_lang(sys) : "en";
     if (ui_text_defined(lang, UI_MENU_TITLE)) return lang;

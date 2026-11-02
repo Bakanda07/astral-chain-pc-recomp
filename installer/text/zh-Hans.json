@@ -30,7 +30,7 @@
  "phase.prepare.translate": "转译着色器",
  "phase.prepare.libraries": "为显卡驱动构建着色器",
  "phase.prepare.pack": "将着色器缓存打包成一个文件",
- "phase.cleanup.ini": "写入 totk.ini",
+ "phase.cleanup.ini": "写入 astralchain.ini",
  "phase.cleanup.temp": "删除临时文件",
 
  "cli.usage": "命令行无效：{detail}",
@@ -85,13 +85,13 @@
  "lift.failed": "游戏代码转换失败（退出代码 {code}）。详情：{log}",
  "compile.failed": "编译 {game_exe} 失败（退出代码 {code}）。详情：{log}",
  "compile.exe_in_use": "{path} 正在使用中。请关闭游戏后重新运行安装程序。",
- "prepare.xlate_in_use": "{path} 正在被占用。请关闭游戏，结束上次残留的 totk_xlate 进程，再重新运行安装程序。",
+ "prepare.xlate_in_use": "{path} 正在被占用。请关闭游戏，结束上次残留的 ac_xlate 进程，再重新运行安装程序。",
  "prepare.shader_list_missing": "缺少着色器列表。",
  "prepare.romfs_patches_failed": "写入游戏数据补丁失败（退出代码 {code}）。详情：{log}",
  "prepare.shaders_failed": "准备着色器失败（退出代码 {code}）。详情：{log}",
  "cleanup.romfs_unreadable": "安装完成后，{path} 中的游戏数据缺失或无法读取。请重启 Windows，然后对同一文件夹再次运行安装程序：它会重新提取游戏数据，其余内容保留。",
  "prepare.pack_failed": "打包着色器缓存失败（退出代码 {code}）。详情：{log}",
- "cleanup.ini_failed": "无法写入 totk.ini：{detail}",
+ "cleanup.ini_failed": "无法写入 astralchain.ini：{detail}",
 
  "warn.lang_needs_fonts": "{lang}文本需要 Switch 系统字体，而安装程序不会提取这些字体；部分文字可能无法显示。",
  "warn.cheats_skipped": "无法构建 mods 文件夹中修改游戏代码的金手指；游戏将不含它们进行安装。详情：{log}",
@@ -101,7 +101,7 @@
  "warn.shaders_skipped": "显卡驱动在编译部分着色器时崩溃，因此有 {count} 个着色器未被预先准备。游戏会在首次需要时编译它们，驱动在那时也可能崩溃；更新驱动可能会解决。详情：{log}",
  "warn.kernel_old": "Linux {version} 缺少游戏依赖的写入跟踪功能（需要 6.7 或更新版本）；游戏可能运行得很慢。更新系统即可解决。",
 
- "ui.title": "TotK 安装程序",
+ "ui.title": "Astral Chain 安装程序",
  "ui.rebuild_title": "正在为你的模组重新构建游戏",
  "ui.start_game": "启动游戏",
  "ui.version": "版本 {version}",
@@ -176,8 +176,8 @@
  "param.input.update": "更新",
  "param.input.keys": "密钥",
 
- "launcher.title": "TotK 安装程序",
- "launcher.python_missing": "安装文件不完整：TotK-Setup.exe 旁边缺少 python 文件夹。请重新解压整个压缩包，然后从解压出的文件夹中启动 TotK-Setup.exe。",
+ "launcher.title": "Astral Chain 安装程序",
+ "launcher.python_missing": "安装文件不完整：Astral Chain-Setup.exe 旁边缺少 python 文件夹。请重新解压整个压缩包，然后从解压出的文件夹中启动 Astral Chain-Setup.exe。",
 
  "lang.ja": "日语",
  "lang.en-US": "英语（美国）",

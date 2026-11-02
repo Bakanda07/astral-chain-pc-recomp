@@ -1,4 +1,4 @@
-// Screen-space contact shadows (TOTK_CONTACT_SHADOWS, percent strength, 0 = off). TotK fills a full-resolution
+// Screen-space contact shadows (AC_CONTACT_SHADOWS, percent strength, 0 = off). Astral Chain fills a full-resolution
 // G-buffer whose targets include a B10G11R11 scene colour, an R32F linear depth (view distance / far) and a D32F depth
 // (is_gbuffer), lights it in half resolution, and then composites the lighting into that scene colour in one pass
 // whose only target is the scene colour, with a D16 depth that sorts pixels into material classes (is_composite).
@@ -37,7 +37,7 @@ static struct {
 
 int vk_contact_strength(void) {
     if (!C.tried) {
-        int s = cfg_int("TOTK_CONTACT_SHADOWS");
+        int s = cfg_int("AC_CONTACT_SHADOWS");
         C.strength = s < 0 ? 0 : s > 100 ? 100 : s;
     }
     return C.strength;
@@ -47,7 +47,7 @@ static int init(VkCtx *c) {
     C.tried = 1;
     vk_contact_strength();
     if (!C.strength) return 0;
-    const char *e = cfg_get("TOTK_CONTACT_DEBUG");   // 1: the frame shows the contact shadow factor in grey
+    const char *e = cfg_get("AC_CONTACT_DEBUG");   // 1: the frame shows the contact shadow factor in grey
     C.debug = e && *e && strcmp(e, "0");
     C.push = (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(c->device, "vkCmdPushDescriptorSetKHR");
     VkDescriptorSetLayoutBinding b[2] = {

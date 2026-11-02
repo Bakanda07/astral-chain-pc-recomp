@@ -3,9 +3,9 @@
 // arguments, on the guest main thread. Checks that each one matches a relocation of the loaded modules, then the
 // values: language, operation mode, notification messages, account, time round trips, controllers, codec state,
 // graphics records, the system events behind nfp and vi, the software keyboard with arguments built by the guest SDK
-// (answers from TOTK_SWKBD_ANSWER, then the window pressed by TOTK_SWKBD_TEST) and the shared fonts when
+// (answers from AC_SWKBD_ANSWER, then the window pressed by AC_SWKBD_TEST) and the shared fonts when
 // tools/extract_fonts.py has written them. The named fatal stubs, and the account UID of a second run, are checked in
-// child processes (this executable again, TOTK_PROBE_SERVICES_CHILD=<case>).
+// child processes (this executable again, AC_PROBE_SERVICES_CHILD=<case>).
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +23,7 @@
 #include "utf16.h"
 #include "ui_text.h"
 
-#define CHILD_ENV "TOTK_PROBE_SERVICES_CHILD"
+#define CHILD_ENV "AC_PROBE_SERVICES_CHILD"
 #define TRY_WAIT_SYSTEM_EVENT "_ZN2nn2os18TryWaitSystemEventEPNS0_15SystemEventTypeE"
 
 typedef struct { const char *key, *name; int fatal; uint64_t addr; int bound, calls; } Ov;
@@ -177,7 +177,7 @@ static const char *const observers[] = {"_ZN2nn2os21AllocateAddressRegionEPmm", 
 
 // Fatal stubs, each in its own child process: the case name, the override, what its FATAL line must say and an
 // environment variable the child runs with (the shared fonts: a font directory that does not exist).
-#define NO_FONTS "TOTK_SHARED_FONTS=:probe-services:no-such-dir"
+#define NO_FONTS "AC_SHARED_FONTS=:probe-services:no-such-dir"
 static const struct { const char *child, *key, *fatal, *env; } fatals[] = {
     {"opus", "codec.Decode", "FATAL: nn::codec::DecodeOpusInterleavedWithHardware"},
     {"font-address", "pl.GetSharedFontAddress", "FATAL: nn::pl::GetSharedFontAddress(0)", NO_FONTS},
@@ -244,8 +244,8 @@ static char *lang(void) {
 static void set_env(const char *name, const char *value) { plat_setenv(name, value); }   // NULL removes it
 
 static void probe_oe(void) {
-    char *keep_lang = cfg_get("TOTK_LANG") ? strdup(cfg_get("TOTK_LANG")) : NULL;
-    char *keep_locale = cfg_get("TOTK_LOCALE") ? strdup(cfg_get("TOTK_LOCALE")) : NULL;
+    char *keep_lang = cfg_get("AC_LANG") ? strdup(cfg_get("AC_LANG")) : NULL;
+    char *keep_locale = cfg_get("AC_LOCALE") ? strdup(cfg_get("AC_LOCALE")) : NULL;
     static const struct { const char *lang, *locale, *want; } cases[] = {
         {NULL, "en-US", "en-US"}, {NULL, "be-BY", "en-US"}, {NULL, "xx", "en-US"},     {NULL, "ja-JP", "ja"},
         {NULL, "fr-CA", "fr-CA"}, {NULL, "es-MX", "es-419"}, {NULL, "es_ES", "es"},     {NULL, "zh-Hant-TW", "zh-Hant"},
@@ -253,31 +253,31 @@ static void probe_oe(void) {
         {"en-US", NULL, "en-US"}, {"zh-CN", NULL, "zh-Hans"}, {"zh-TW", NULL, "zh-Hant"},
         {"zh-Hans", NULL, "zh-Hans"}, {"zh-Hant", NULL, "zh-Hant"}};
     int bad = 0;
-    printf("oe: configured language (TOTK_LANG=%s) is %s\n", keep_lang ? keep_lang : "", lang());
+    printf("oe: configured language (AC_LANG=%s) is %s\n", keep_lang ? keep_lang : "", lang());
     for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
-        set_env("TOTK_LANG", cases[i].lang);
-        set_env("TOTK_LOCALE", cases[i].locale);
+        set_env("AC_LANG", cases[i].lang);
+        set_env("AC_LOCALE", cases[i].locale);
         const char *got = lang();
         if (strcmp(got, cases[i].want)) {
             bad++;
-            printf("  FAIL: language for TOTK_LANG=%s TOTK_LOCALE=%s is %s, not %s\n", cases[i].lang ? cases[i].lang : "",
+            printf("  FAIL: language for AC_LANG=%s AC_LOCALE=%s is %s, not %s\n", cases[i].lang ? cases[i].lang : "",
                    cases[i].locale ? cases[i].locale : "", got, cases[i].want);
         }
     }
-    set_env("TOTK_LANG", NULL);
-    set_env("TOTK_LOCALE", NULL);
+    set_env("AC_LANG", NULL);
+    set_env("AC_LOCALE", NULL);
     char sys[16];
     snprintf(sys, sizeof sys, "%s", lang());
-    set_env("TOTK_LOCALE", "en-US");
+    set_env("AC_LOCALE", "en-US");
     char def[16];
     snprintf(def, sizeof def, "%s", lang());
-    set_env("TOTK_LANG", keep_lang);
-    set_env("TOTK_LOCALE", keep_locale);
+    set_env("AC_LANG", keep_lang);
+    set_env("AC_LOCALE", keep_locale);
     free(keep_lang);
     free(keep_locale);
     checks++;
     failures += bad > 0;
-    printf("oe: language %s by default (en-US locale), %s for this user's locale; %d locale/TOTK_LANG cases %s\n",
+    printf("oe: language %s by default (en-US locale), %s for this user's locale; %d locale/AC_LANG cases %s\n",
            def, sys, (int)(sizeof cases / sizeof *cases), bad ? "FAILED" : "ok");
 
     CALL("oe.Initialize", 0);
@@ -498,18 +498,18 @@ static void probe_feedback(uint32_t pid, uint32_t style) {
           "six-axis handle %#x", sh[0]);
     CHECK((int32_t)CALL("hid.GetVibrationDeviceHandles", U(dual), 2, U(&zero), 4) == 2 && dual[0] == 5 &&
           dual[1] == 0x10005, "Joy-Con pair vibration handles %#x %#x (SDK: 0x5 0x10005)", dual[0], dual[1]);
-    char *keep_r = cfg_get("TOTK_RUMBLE") ? strdup(cfg_get("TOTK_RUMBLE")) : NULL;
-    char *keep_m = cfg_get("TOTK_MOTION") ? strdup(cfg_get("TOTK_MOTION")) : NULL;
-    set_env("TOTK_RUMBLE", "0");
-    set_env("TOTK_MOTION", "0");
+    char *keep_r = cfg_get("AC_RUMBLE") ? strdup(cfg_get("AC_RUMBLE")) : NULL;
+    char *keep_m = cfg_get("AC_MOTION") ? strdup(cfg_get("AC_MOTION")) : NULL;
+    set_env("AC_RUMBLE", "0");
+    set_env("AC_MOTION", "0");
     uint32_t none[2] = {0xdead, 0xdead}, six_off[2] = {0};
     CHECK((int32_t)CALL("hid.GetVibrationDeviceHandles", U(none), 2, U(&pid), style) == 0 && none[0] == 0xdead,
-          "TOTK_RUMBLE=0 still reports vibration handles");
-    // TOTK_MOTION is live: the handle stays (the sensor reads at rest while it is 0)
+          "AC_RUMBLE=0 still reports vibration handles");
+    // AC_MOTION is live: the handle stays (the sensor reads at rest while it is 0)
     CHECK((int32_t)CALL("hid.GetSixAxisSensorHandles", U(six_off), 2, U(&pid), style) == 1 && six_off[0] == sh[0],
-          "TOTK_MOTION=0 drops the six-axis handle %#x", six_off[0]);
-    set_env("TOTK_RUMBLE", keep_r);
-    set_env("TOTK_MOTION", keep_m);
+          "AC_MOTION=0 drops the six-axis handle %#x", six_off[0]);
+    set_env("AC_RUMBLE", keep_r);
+    set_env("AC_MOTION", keep_m);
     free(keep_r);
     free(keep_m);
 
@@ -721,7 +721,7 @@ static void probe_swkbd(void) {
 
     const char *def = ui_text(UI_SWKBD_DEFAULT_NAME);
     const KbCase cases[] = {
-        {2, 8, 9, 0, 0x2c, 0, 0, NULL, "Epona", "Epona", 0},                  // TotK's horse naming (main+0x1ecbf64)
+        {2, 8, 9, 0, 0x2c, 0, 0, NULL, "Epona", "Epona", 0},                  // Astral Chain's horse naming (main+0x1ecbf64)
         {2, 8, 9, 0, 0x2c, 0, 0, NULL, "ABCDEFGHIJKL", "ABCDEFGHI", 0},        // at most 9
         {2, 8, 9, 0, 0x2c, 0, 0, NULL, "a@b%c\\d e/f", "abcd e/f", 0},         // '@' '%' '\' disabled
         {2, 8, 9, 0, 0x2c, 0, 0, NULL, "<cancel>", "", SWKBD_CANCELED},
@@ -744,9 +744,9 @@ static void probe_swkbd(void) {
         arg[KB_UTF8] = (uint8_t)k->utf8;
         memcpy(arg + ARG_WORK, &w, 8), memcpy(arg + ARG_WORK_SIZE, &ws, 8);
         if (k->initial) rt_call(gc, initial, 2, U(arg), U(u16(k->initial)));
-        set_env(k->window ? "TOTK_SWKBD_TEST" : "TOTK_SWKBD_ANSWER", k->answer);
+        set_env(k->window ? "AC_SWKBD_TEST" : "AC_SWKBD_ANSWER", k->answer);
         uint32_t r = (uint32_t)CALL("swkbd.ShowKeyboard", U(str), U(arg));
-        set_env("TOTK_SWKBD_TEST", NULL), set_env("TOTK_SWKBD_ANSWER", NULL);
+        set_env("AC_SWKBD_TEST", NULL), set_env("AC_SWKBD_ANSWER", NULL);
         int ok = r == k->result && (k->utf8 ? !strcmp((const char *)out, k->want) : u16_is(out, k->want));
         checks++;
         if (!ok) bad++, printf("  FAIL: swkbd case %d (%s%s): result %#x\n", i, k->window ? "window " : "", k->answer, r);
@@ -826,7 +826,7 @@ static void probe_fonts(void) {
 }
 
 // The host catalog (ui_text.c): every menu id has its own English, Russian, Brazilian Portuguese and Simplified
-// Chinese text, the software keyboard keeps its game-language rows, and menu_text follows TOTK_MENU_LANG.
+// Chinese text, the software keyboard keeps its game-language rows, and menu_text follows AC_MENU_LANG.
 static void probe_menu_text(void) {
     static const char *const langs[] = {"en", "ja", "fr", "de", "it", "es", "nl", "pt", "ru", "zh-Hans", "zh-Hant", "ko",
                                         "pt-BR"};
@@ -862,15 +862,15 @@ static void probe_menu_text(void) {
     CHECK(!strcmp(ui_text_lang("pt-BR"), "pt-BR") && !strcmp(ui_text_lang("pt"), "pt") &&
           strcmp(ui_text_in("pt-BR", UI_SWKBD_PROMPT), ui_text_in("pt", UI_SWKBD_PROMPT)), "pt-BR keyboard row not used");
     // menu_text follows the setting live
-    cfg_set("TOTK_MENU_LANG", "ru");
+    cfg_set("AC_MENU_LANG", "ru");
     CHECK(menu_text(UI_MENU_CONTINUE) == ui_text_in("ru", UI_MENU_CONTINUE), "menu_text ignores MENU_LANG=ru");
-    cfg_set("TOTK_MENU_LANG", "pt-BR");
+    cfg_set("AC_MENU_LANG", "pt-BR");
     CHECK(menu_text(UI_MENU_CONTINUE) == ui_text_in("pt-BR", UI_MENU_CONTINUE), "menu_text ignores MENU_LANG=pt-BR");
-    cfg_set("TOTK_MENU_LANG", "en");
+    cfg_set("AC_MENU_LANG", "en");
     CHECK(menu_text(UI_MENU_CONTINUE) == ui_text_in("en", UI_MENU_CONTINUE), "menu_text did not follow MENU_LANG=en");
-    cfg_set("TOTK_MENU_LANG", "zh-Hans");
+    cfg_set("AC_MENU_LANG", "zh-Hans");
     CHECK(menu_text(UI_MENU_TITLE) == ui_text_in("zh-Hans", UI_MENU_TITLE), "menu_text ignores MENU_LANG=zh-Hans");
-    cfg_set("TOTK_MENU_LANG", "");
+    cfg_set("AC_MENU_LANG", "");
     const char *sys_lang = ui_text_lang(plat_ui_language());
     const char *auto_lang = ui_text_defined(sys_lang, UI_MENU_TITLE) ? sys_lang : "en";
     CHECK(menu_text(UI_MENU_CONTINUE) == ui_text_in(auto_lang, UI_MENU_CONTINUE), "menu_text auto ignores the system language");
@@ -893,7 +893,7 @@ static void probe_main(Cpu *c) {
 }
 
 // ---- child processes
-// Runs this executable again with the same command line and TOTK_PROBE_SERVICES_CHILD=<mode>; its stdout and stderr
+// Runs this executable again with the same command line and AC_PROBE_SERVICES_CHILD=<mode>; its stdout and stderr
 // into out. Returns the exit code.
 static uint32_t run_child(const char *mode, const char *env, char *out, size_t cap) {
     char name[64] = "";
@@ -996,13 +996,13 @@ int probe_services(void) {
     CHECK(obs_bound == NOBS, "%d of %d observers match a JUMP_SLOT", obs_bound, NOBS);
 
     // Every linked override is either probed here or belongs to another probe or owner (nn::fs: fs probe, fibers: kernel probe,
-    // movie::Decoder: --probe-movie, memcpy: the graphics write-back in nvn_api_core.c).
+    // memcpy: the graphics write-back in nvn_api_core.c).
     int linked = hostfn_table_size(0), others = 0;
     for (int i = 0; i < linked; i++) {
         const char *n = hostfn_table_name(0, i);
         int mine = 0;
         for (int k = 0; k < NOV; k++) mine |= !strcmp(ovs[k].name, n);
-        int theirs = !strncmp(n, "_ZN2nn2fs", 9) || !strncmp(n, "_ZN5movie", 9) || !strcmp(n, "memcpy") ||
+        int theirs = !strncmp(n, "_ZN2nn2fs", 9) || !strcmp(n, "memcpy") ||
                      !strcmp(n, KERN_SYM_INITIALIZE_FIBER) ||
                      !strcmp(n, KERN_SYM_FINALIZE_FIBER) || !strcmp(n, KERN_SYM_SWITCH_TO_FIBER) ||
                      !strcmp(n, KERN_SYM_GET_CURRENT_FIBER);

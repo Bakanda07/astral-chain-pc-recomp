@@ -1,12 +1,26 @@
-# TotK Recomp
+# Astral Chain Recomp
 
-Static recompilation of *Tears of the Kingdom* (Switch, ARM64) into a native Windows x86-64 exe with a Vulkan renderer. Design: [docs/architecture.md](docs/architecture.md). Toolchain, build commands and tests: [docs/building.md](docs/building.md).
+Static recompilation of *Astral Chain* (Switch, ARM64) into a native Windows x86-64 exe with a Vulkan renderer, built
+on the pipeline of the TotK Recomp project (see `docs/astral-chain.md` for port notes). Design: `docs/architecture.md`.
+Toolchain, build commands and tests: `docs/building.md`.
+
+## Priorities
+
+- **Performance first**: Astral Chain is a fast PlatinumGames action game. Frame-time budgets are a feature: keep the
+  host paths cheap (upload, replay, present pacing), avoid per-frame allocations and full-RomFS scans, and measure
+  with `AC_TRACE=perf` / the performance overlay instead of guessing.
+- **ASTC textures are everywhere**: the game's textures are almost all ASTC (`runtime/nvn.h` formats 0x79-0x94,
+  14 LDR + 14 sRGB block sizes). Sampling goes through the native ASTC path when the device supports
+  textureCompressionASTC_LDR (`runtime/vk_astc.c`, `AC_ASTC=auto`), the compute decoder otherwise. Any change to the
+  texture upload/sampler paths must be checked against ASTC (including sRGB) and the `--probe-astc` probe; watch for
+  3D ASTC, which Vulkan cannot sample natively and the decoder handles only in 2D.
 
 ## Game content boundary
 
 This repository is public. Game data lives outside it and every derived file stays in ignored folders.
 
-- The user's game and key paths are in `config.local.toml` (ignored). Pass the keys file path to tools; the tools read it themselves. Key values stay out of your output, logs, commands and files.
+- The user's game and key paths are in `config.local.toml` (ignored). Pass the keys file path to tools; the tools read
+  it themselves. Key values stay out of your output, logs, commands and files.
 - Everything extracted or generated goes under `build/` or `generated/`.
 - Every file the code generator emits carries the marker defined as `GENERATED_MARKER` in `tools/check_content.py`.
 - Run `python tools/check_content.py --staged` before proposing a commit. It is the same check CI runs.
@@ -21,13 +35,19 @@ This repository is public. Game data lives outside it and every derived file sta
 
 ## Code
 
-- Build C with MSYS2 UCRT64 Clang (`C:\msys64\ucrt64\bin`). Generated C uses GNU extensions, so `cl.exe` is out. Call Ninja from that directory by full path or put it first on PATH.
-- Two Python environments: `.venv` (3.12) for the lifter and the build, `.venv-py314` for the extraction and shader scripts, which need `compression.zstd`.
+- Build C with MSYS2 UCRT64 Clang (`C:\msys64\ucrt64\bin`). Generated C uses GNU extensions, so `cl.exe` is out. Call
+  Ninja from that directory by full path or put it first on PATH.
+- Two Python environments: `.venv` (3.12) for the lifter and the build. The TotK project also used `.venv-py314` for
+  scripts needing `compression.zstd`; this port's extraction runs under `.venv` with the `zstandard` package, so 3.14
+  is not required.
 - Generated C is never edited by hand: change the generator (`recomp/`).
-- Every lifter change passes the differential tests against Unicorn ([docs/building.md](docs/building.md), "Checks"). After changing `recomp/jumptables.py`, `tests\jumptables_check.py` reports 0 disagreements on 1.2.1 and 1.4.3.
+- Every lifter change passes the differential tests against Unicorn (`docs/building.md`, "Checks"). After changing
+  `recomp/jumptables.py`, the jumptables check must report 0 disagreements.
 - `recomp/layout.py` alone decides module bases.
-- Graphics bugs: [docs/maxwell.md](docs/maxwell.md) lists the Maxwell behaviour the Vulkan path must match and the TotK bugs other ports fixed.
-- Comments say what the code does and why, in words that stand on their own. Cite our code by file plus function (a line number may follow as a hint) and upstream code by project, file and function: `refs/` moves, so its line numbers rot. Commit hashes belong to the attribution of copied code.
+- Graphics bugs: `docs/maxwell.md` lists the Maxwell behaviour the Vulkan path must match.
+- Comments say what the code does and why, in words that stand on their own. Cite our code by file plus function (a
+  line number may follow as a hint) and upstream code by project, file and function: `refs/` moves, so its line
+  numbers rot. Commit hashes belong to the attribution of copied code.
 
 ## Writing
 

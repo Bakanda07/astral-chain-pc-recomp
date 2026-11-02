@@ -33,7 +33,7 @@
 // binding strides only); and, where VK_EXT_extended_dynamic_state3 offers them, depth clamp, polygon mode, blend enables,
 // equations, write masks and alpha to coverage. The key holds the rest: shaders, target formats, sample count, topology
 // class, depth clip mode, logic op and what is not dynamic on the GPU. The VkPipelineCache persists to
-// pipeline-cache.bin next to totk.exe (TOTK_PIPELINE_CACHE overrides the path).
+// pipeline-cache.bin next to totk.exe (AC_PIPELINE_CACHE overrides the path).
 //
 // Provenance: the NVN -> Vulkan enum mappings (blend factors and equations, compare functions, stencil ops), the vertex
 // format table with its 3-component fallback and the pipeline cache file handling follow LAS Recomp
@@ -77,7 +77,7 @@ static struct {
     int push_stage;                    // GFX_STAGE_* whose set is pushed with independent layouts
     int gpl;                           // draws whose pipeline is building get a fast-linked one (vk_caps.gpl)
     struct { uint64_t links, wlinks, dlinks, requeued, link_fail, defer, lib_n[4], lib_fail, swaps, slow, pre_used[4]; double link_ms, link_max, lib_ms[4], lib_max[4], dlink_ms, dlink_max; } g;
-    int vs_outs_all;                   // TOTK_VS_OUTS: 0 union of paired fragment inputs, 1 (all) all 32 output locations
+    int vs_outs_all;                   // AC_VS_OUTS: 0 union of paired fragment inputs, 1 (all) all 32 output locations
     int dyn_vi, dyn_clamp, dyn_poly, dyn_blend_en, dyn_blend_eq, dyn_wmask, dyn_a2c;
     int f_logic_op, f_depth_clamp, f_fill_non_solid, f_dual_src;
     int pv_last;                       // provokingVertexLast enabled: NVN's default is the last vertex
@@ -147,7 +147,7 @@ static uint64_t key_hash(const void *k, size_t n) { return nvn_hm_hash(k, (uint3
 // The cache file lives next to totk.exe, so every build dir (the main build and each private fork) has its own:
 // forks that shared build\v121's cache broke each other's runs (2026-10-22).
 static void cache_path_init(void) {
-    const char *cfg_path = cfg_get("TOTK_PIPELINE_CACHE");
+    const char *cfg_path = cfg_get("AC_PIPELINE_CACHE");
     if (cfg_path && *cfg_path && strlen(cfg_path) < sizeof P.cache_path) {
         strcpy(P.cache_path, cfg_path);
         return;
@@ -215,7 +215,7 @@ static int ensure_init(void) {
     rt_log(P.gpl ? "vk_pipeline: graphics pipeline library on: a draw whose pipeline is building gets a fast-linked one, "
                    "the optimised build replaces it when done"
                  : "vk_pipeline: graphics pipeline library off: draws wait for or skip pipelines that are building");
-    const char *ps = cfg_get("TOTK_PUSH_STAGE"), *vo = cfg_get("TOTK_VS_OUTS");
+    const char *ps = cfg_get("AC_PUSH_STAGE"), *vo = cfg_get("AC_VS_OUTS");
     P.push_stage = ps && !strcmp(ps, "fs") ? GFX_STAGE_FS : GFX_STAGE_VS;
     P.vs_outs_all = vo && !strcmp(vo, "all");
     if (P.indep) rt_log("vk_pipeline: stage-independent layouts: vertex set 0, fragment set 1, %s set pushed; vertex outputs: %s",
@@ -235,7 +235,7 @@ static int ensure_init(void) {
         VkPhysicalDeviceVulkan13Properties p13 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES};
         VkPhysicalDeviceProperties2 q2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &p13};
         vkGetPhysicalDeviceProperties2(c->phys, &q2);
-        P.sg32_stages = vk_caps.sg_pin_stages;   // vk_caps.c: 32 unless TOTK_VK_SUBGROUP; 0 without the pin
+        P.sg32_stages = vk_caps.sg_pin_stages;   // vk_caps.c: 32 unless AC_VK_SUBGROUP; 0 without the pin
         rt_log("vk_pipeline: subgroup size %u-%u, requiredSubgroupSizeStages %#x, pinning %u on %#x", p13.minSubgroupSize,
                p13.maxSubgroupSize, (unsigned)p13.requiredSubgroupSizeStages, vk_caps.sg_size, (unsigned)P.sg32_stages);
     }
@@ -247,9 +247,9 @@ static int ensure_init(void) {
     PROC(push, "vkCmdPushDescriptorSetKHR");
     // Descriptor update templates (core 1.1; the push variant comes with VK_KHR_push_descriptor on 1.1): the driver
     // walks a layout prepared when the layout is made instead of parsing write structs every draw (DXVK does so for the
-    // same reason). TOTK_DESC_TEMPLATE=0 keeps the write structs.
-    if (!cfg_bool("TOTK_DESC_TEMPLATE")) {
-        rt_log("vk_pipeline: descriptor update templates off (TOTK_DESC_TEMPLATE=0)");
+    // same reason). AC_DESC_TEMPLATE=0 keeps the write structs.
+    if (!cfg_bool("AC_DESC_TEMPLATE")) {
+        rt_log("vk_pipeline: descriptor update templates off (AC_DESC_TEMPLATE=0)");
     } else if (c->props.apiVersion >= VK_API_VERSION_1_1 && PROC(tpl_create, "vkCreateDescriptorUpdateTemplate") &&
                PROC(tpl_destroy, "vkDestroyDescriptorUpdateTemplate") && PROC(tpl_update, "vkUpdateDescriptorSetWithTemplate")) {
         P.tpl = 1;
@@ -258,15 +258,15 @@ static int ensure_init(void) {
     } else {
         rt_log("vk_pipeline: descriptor update templates unavailable: sets are written with write structs");
     }
-    // TOTK_VK_DYN_VERTEX=0/1 forces dynamic vertex input off or on. Default off on Intel's frozen Windows driver for its
+    // AC_VK_DYN_VERTEX=0/1 forces dynamic vertex input off or on. Default off on Intel's frozen Windows driver for its
     // older integrated GPUs (UHD 630, Ice Lake: Vulkan 1.3.215 and older), which draws nothing with it; LAS Recomp
     // turns it off there for the same reason.
-    const char *dv = cfg_get("TOTK_VK_DYN_VERTEX");   // no fixed default: it depends on the GPU, see above
+    const char *dv = cfg_get("AC_VK_DYN_VERTEX");   // no fixed default: it depends on the GPU, see above
     int intel_legacy = c->props.vendorID == 0x8086 && c->props.apiVersion <= VK_MAKE_API_VERSION(0, 1, 3, 215);
     int dv_on = dv && *dv ? strcmp(dv, "0") != 0 : !intel_legacy;
     P.dyn_vi = dv_on && c->has_vertex_input_dynamic_state && PROC(set_vi, "vkCmdSetVertexInputEXT");
     if (!dv_on && c->has_vertex_input_dynamic_state)
-        rt_log("vk_pipeline: dynamic vertex input off (%s)", dv && *dv ? "TOTK_VK_DYN_VERTEX=0" : "Intel's older Windows driver draws nothing with it");
+        rt_log("vk_pipeline: dynamic vertex input off (%s)", dv && *dv ? "AC_VK_DYN_VERTEX=0" : "Intel's older Windows driver draws nothing with it");
     if (c->has_eds3) {
         P.dyn_clamp = e3.extendedDynamicState3DepthClampEnable && P.f_depth_clamp && PROC(set_clamp, "vkCmdSetDepthClampEnableEXT");
         P.dyn_poly = e3.extendedDynamicState3PolygonMode && PROC(set_poly, "vkCmdSetPolygonModeEXT");
@@ -275,16 +275,16 @@ static int ensure_init(void) {
         P.dyn_wmask = e3.extendedDynamicState3ColorWriteMask && PROC(set_wmask, "vkCmdSetColorWriteMaskEXT");
         P.dyn_a2c = e3.extendedDynamicState3AlphaToCoverageEnable && PROC(set_a2c, "vkCmdSetAlphaToCoverageEnableEXT");
     }
-    // TOTK_VK_DYN_A2C=0/1 forces dynamic alpha to coverage off or on. Default off on AMD's Windows driver branch for
+    // AC_VK_DYN_A2C=0/1 forces dynamic alpha to coverage off or on. Default off on AMD's Windows driver branch for
     // RDNA 2 and older (vk_caps.amd_sc), which applies alpha to coverage while the dynamic state says off: on an RX 590
-    // (24.9.1) TotK, which never turns it on, drew Link and the NPCs with depth but no colour (black silhouettes) and
+    // (24.9.1) Astral Chain, which never turns it on, drew Link and the NPCs with depth but no colour (black silhouettes) and
     // dithered other surfaces into checkerboards (issue #67, RX 470/570/580). Taken out of the dynamic state, it goes
     // into the pipeline key and the characters draw.
-    const char *da = cfg_get("TOTK_VK_DYN_A2C");   // no fixed default: it depends on the driver, see above
+    const char *da = cfg_get("AC_VK_DYN_A2C");   // no fixed default: it depends on the driver, see above
     int da_on = da && *da ? strcmp(da, "0") != 0 : !vk_caps.amd_sc;
     if (!da_on && P.dyn_a2c) {
         P.dyn_a2c = 0;
-        rt_log("vk_pipeline: dynamic alpha to coverage off (%s)", da && *da ? "TOTK_VK_DYN_A2C=0" : "AMD's driver for RDNA 2 and older");
+        rt_log("vk_pipeline: dynamic alpha to coverage off (%s)", da && *da ? "AC_VK_DYN_A2C=0" : "AMD's driver for RDNA 2 and older");
     }
 #undef PROC
     static const VkDynamicState core[] = {
@@ -441,7 +441,7 @@ static VkFormatFeatureFlags format_features(VkFormat f, int optimal) {
     return r;
 }
 
-// Vertex attribute formats by NVNformat (LAS Recomp exec.c vertex_format; MNG nvn_mtl.m vfmt for the TotK additions).
+// Vertex attribute formats by NVNformat (LAS Recomp exec.c vertex_format; MNG nvn_mtl.m vfmt for the Astral Chain additions).
 typedef struct { VkFormat vk; uint8_t type; } VtxFmt;
 #define F(v) {VK_FORMAT_##v, GFX_TYPE_FLOAT}
 #define U(v) {VK_FORMAT_##v, GFX_TYPE_UINT}
@@ -1127,7 +1127,7 @@ static Layout *layout_pair(Bindings *B, Bindings *F) {
 
 // Vertex outputs with independent layouts: each vertex shader declares the union of the inputs of every fragment
 // shader met with it (pipeline-keys.bin at the prewarm, then each pipeline built), so its module does not depend on the
-// fragment shader of one pipeline. Unwritten ones read (0, 0, 0, 1) as before. TOTK_VS_OUTS=all declares all 32.
+// fragment shader of one pipeline. Unwritten ones read (0, 0, 0, 1) as before. AC_VS_OUTS=all declares all 32.
 #define VS_OUTS_CAP 8192
 static struct {
     PlatMutex lock;
@@ -1230,7 +1230,7 @@ static int target_count(const VkPipeState *s) {
 // fragment module whose output 1 is Location 0, Index 1 (spirv_dual_source).
 static int is_src1(unsigned f) { return f >= NVN_BLEND_FUNC_SRC1_COLOR && f <= NVN_BLEND_FUNC_ONE_MINUS_SRC1_ALPHA; }
 // Runs per draw (gkey_fill, target_wmask): only the blend factors of blend-enabled targets are read until one is SRC1,
-// which TotK never sets (0 of 876 pipelines in the field and fight saves).
+// which Astral Chain never sets (0 of 876 pipelines in the field and fight saves).
 static int uses_src1(const VkPipeState *s) {
     for (uint32_t m = s->color.blend_en & 0xffu; m; m &= m - 1) {
         int i = __builtin_ctz(m);
@@ -1635,7 +1635,7 @@ static struct {
     LibJob *head, *tail;
     int idle;                          // workers asleep on work_cv
     int running;                       // jobs workers are building
-    int on;                            // TOTK_PIPE_WAIT: 1 workers (default), 0 the drawing thread builds them (draw);
+    int on;                            // AC_PIPE_WAIT: 1 workers (default), 0 the drawing thread builds them (draw);
                                        // set by vk_pipeline_async_enable, before the replay runs
     uint64_t waits, queued, by_worker, stolen, timeouts;
 } U;
@@ -1839,7 +1839,7 @@ static struct {
 // Every graphics pipeline built in a game run appends a KeyRec: the VkPipeState it was built from with the shader
 // pointers zeroed and the shaders named by their gfx_shader input ids instead, which do not depend on the translator,
 // so the record rebuilds the pipeline without guest memory. At the next boot vk_pipeline_prewarm (rt_boot, before the
-// guest runs; TOTK_PIPE_PREBUILD=0 skips it) loads each record's shaders, translating the ones not cached under the
+// guest runs; AC_PIPE_PREBUILD=0 skips it) loads each record's shaders, translating the ones not cached under the
 // current translator from their stored inputs (gfx_shader_prewarm; a record whose shader has neither is dropped),
 // enters each Pipe as building under the key a draw would compute, queues it to the low queue and builds the queue on
 // every core. Records are deduplicated by a hash of their bytes; they are collected under P.lock by the worker that
@@ -1965,7 +1965,7 @@ static void keys_open(void) {
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (len >= (long)sizeof h && fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, "TOTKPKEY", 8) &&
+    if (len >= (long)sizeof h && fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, "ACPCACHE", 8) &&
         h.version == KEYS_VERSION && h.rec_size == sizeof(KeyRec)) {
         K.header_ok = 1;
         size_t n = ((size_t)len - sizeof h) / sizeof(KeyRec);
@@ -1997,7 +1997,7 @@ static void pipe_worker(void *arg) {
     plat_mutex_lock(&P.lock);
     for (;;) {
         // With 3 or more workers one never takes low-queue work, so a waiting draw's library starts at once
-        // (not with TOTK_PIPE_WAIT=draw).
+        // (not with AC_PIPE_WAIT=draw).
         while (!U.head && !A.head && !(A.low && (A.threads < 3 || !U.on || A.low_running < A.threads - 1))) {
             U.idle++;
             plat_cond_wait(&work_cv, &P.lock);
@@ -2116,8 +2116,8 @@ static void workers_drain(void) {
 }
 
 void vk_pipeline_async_enable(void) {
-    U.on = strcmp(cfg_value("TOTK_PIPE_WAIT"), "draw") != 0;
-    const char *e = cfg_get("TOTK_PIPE_SYNC");
+    U.on = strcmp(cfg_value("AC_PIPE_WAIT"), "draw") != 0;
+    const char *e = cfg_get("AC_PIPE_SYNC");
     if (e && *e && strcmp(e, "0")) return;
     A.on = 1;
 }
@@ -2291,15 +2291,15 @@ static VkPipeline graphics(const VkPipeState *s, const VkPipeInfo **info, int as
     // parallel on idle workers (lib_wait; about 0.12 ms per library from the driver's disk cache, 5-180 ms cold), and
     // links them here: its own job may queue behind optimised builds of earlier pipelines. The job then only does the
     // optimised build, from the low queue. Other draws leave the libraries to the job and are skipped meanwhile.
-    // TOTK_PIPE_WAIT=draw builds them on this thread one after the other instead, as before; TOTK_GPL_DRAW_BUILD=0
+    // AC_PIPE_WAIT=draw builds them on this thread one after the other instead, as before; AC_GPL_DRAW_BUILD=0
     // leaves them to the job.
     static int draw_build = -1;
     if (draw_build < 0) {
-        const char *e = cfg_get("TOTK_GPL_DRAW_BUILD");
+        const char *e = cfg_get("AC_GPL_DRAW_BUILD");
         draw_build = !(e && !strcmp(e, "0"));
         rt_log("vk_pipeline: a draw that waits for its pipeline %s", !draw_build ? "leaves its libraries to its job"
                : U.on ? "has its libraries built in parallel on the workers, ahead of other jobs"
-                      : "builds its libraries itself (TOTK_PIPE_WAIT=draw)");
+                      : "builds its libraries itself (AC_PIPE_WAIT=draw)");
     }
     double end = wait_ms ? now_ms() + wait_ms : 0;
     if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay) {
@@ -2404,7 +2404,7 @@ void vk_pipeline_prewarm(void) {
     const char *gpu = rt_config()->gpu;
     uint32_t pr_hist[16] = {0}, fs_hist[4] = {0};   // library state of the recorded pipelines (lb_start)
     if (!A.on || (gpu && !strcmp(gpu, "null"))) return;
-    if (!cfg_bool("TOTK_PIPE_PREBUILD")) {   // prebuild_start logs the off case
+    if (!cfg_bool("AC_PIPE_PREBUILD")) {   // prebuild_start logs the off case
         if (ensure_init()) lb_start(pr_hist, fs_hist);
         return;
     }
@@ -2432,7 +2432,7 @@ void vk_pipeline_prewarm(void) {
     for (size_t i = 0; i < m; i++)
         if (!u || memcmp(ids[u - 1], ids[i], 32)) memcpy(ids[u++], ids[i], 32);
     int cpus = (int)plat_cpu_usable();
-    const char *pe = cfg_get("TOTK_PREWARM_XLATE");   // no fixed default: half the CPUs, at most 16, when unset
+    const char *pe = cfg_get("AC_PREWARM_XLATE");   // no fixed default: half the CPUs, at most 16, when unset
     int procs = pe && *pe ? atoi(pe) : cpus / 2 > 16 ? 16 : cpus / 2;
     gfx_shader_prewarm((const uint8_t(*)[32])ids, u, sh, cpus, procs < 1 ? 1 : procs);
     double t1 = now_ms();
@@ -2497,13 +2497,13 @@ void vk_pipeline_prewarm(void) {
     lb_start(pr_hist, fs_hist);
 }
 
-// ensure_init's hook: without a prewarm (TOTK_PIPE_PREBUILD=0, or the device came up first elsewhere) the records
+// ensure_init's hook: without a prewarm (AC_PIPE_PREBUILD=0, or the device came up first elsewhere) the records
 // are not built. Caller holds no lock.
 static void prebuild_start(void) {
     plat_mutex_lock(&P.lock);
     if (K.file && !K.warm) {
         rt_log("vk_pipeline: prebuild off%s; %zu records not built",
-               !cfg_bool("TOTK_PIPE_PREBUILD") ? " (TOTK_PIPE_PREBUILD=0)" : " (no boot prewarm)", K.file_n);
+               !cfg_bool("AC_PIPE_PREBUILD") ? " (AC_PIPE_PREBUILD=0)" : " (no boot prewarm)", K.file_n);
         free(K.file);
         K.file = NULL;
     }
@@ -2548,15 +2548,15 @@ static Layout *compute_layout(const GfxShader *cs, Bindings *B, const char **why
 // - boot (lb_worker), after the pipeline-key prewarm, on cpus/4 threads at PLAT_PRIO_IDLE (the short P.lock
 //   sections and shader loads at normal priority, so a preempted thread never holds the lock the replay needs):
 //   compute pipelines of every recorded and prepared compute shader, kept (vk_pipeline_compute builds compute
-//   synchronously on the replay thread; 163 prepared), and the libraries of the first TOTK_LIB_PREBUILD_KEEP variants
+//   synchronously on the replay thread; 163 prepared), and the libraries of the first AC_LIB_PREBUILD_KEEP variants
 //   play recorded (priority 0), kept in libs[] with their shaders. KEEP defaults to 0: a kept library costs 140-460 KB
 //   of process memory (10,000 kept took 9 GB in run 1) to save a rebuild the driver cache makes 0.1 ms.
 // Library state: the vertex output union known now (vs_union_peek; the prewarm fills it from pipeline-keys.bin, the
 // preparation has none), the clamp, polygon mode and depth mode most recorded pipelines use (defaults without a key
 // file: clamp 0, fill, -w..w), single-sampled, no dual source; the state dynamic on this GPU is 0 in every key.
 // A draw that meets such a variant in a new pipeline then gets its libraries from libs[] or the driver cache and
-// fast-links (gpl_link). TOTK_LIB_PREBUILD=0 turns the boot part off, =N stops it after N variants;
-// TOTK_LIB_PREBUILD_THREADS sets its thread count.
+// fast-links (gpl_link). AC_LIB_PREBUILD=0 turns the boot part off, =N stops it after N variants;
+// AC_LIB_PREBUILD_THREADS sets its thread count.
 #define LB_MAX_THREADS 16
 
 static struct {
@@ -2932,16 +2932,16 @@ static void lb_state(const uint32_t pr_hist[16], const uint32_t fs_hist[4]) {
     uint32_t best = 0, bf = 0;
     for (uint32_t i = 1; i < 16; i++) best = pr_hist[i] > pr_hist[best] ? i : best;
     for (uint32_t i = 1; i < 4; i++) bf = fs_hist[i] > fs_hist[bf] ? i : bf;
-    if (!pr_hist[best]) best = 8;   // no key file: TotK clips -w..w (all 2706 records of a recorded key file)
+    if (!pr_hist[best]) best = 8;   // no key file: Astral Chain clips -w..w (all 2706 records of a recorded key file)
     LB.clamp = (uint8_t)(best & 1), LB.poly = (uint8_t)(best >> 1 & 3), LB.minus_w = (uint8_t)(best >> 3 & 1);
     LB.samples = (uint8_t)(1u << bf);
 }
 
 // Boot: compute shaders of the warm list (recorded and prepared), then the first KEEP recorded graphics variants.
 static void lb_start(const uint32_t pr_hist[16], const uint32_t fs_hist[4]) {
-    const char *e = cfg_value("TOTK_LIB_PREBUILD"), *ke = cfg_get("TOTK_LIB_PREBUILD_KEEP");
-    const char *te = cfg_get("TOTK_LIB_PREBUILD_THREADS");   // no fixed default: a quarter of the CPUs when unset
-    if (!A.on || !cfg_bool("TOTK_LIB_PREBUILD")) return;
+    const char *e = cfg_value("AC_LIB_PREBUILD"), *ke = cfg_get("AC_LIB_PREBUILD_KEEP");
+    const char *te = cfg_get("AC_LIB_PREBUILD_THREADS");   // no fixed default: a quarter of the CPUs when unset
+    if (!A.on || !cfg_bool("AC_LIB_PREBUILD")) return;
     char dir[PLAT_PATH_MAX * 2];
     if (cache_dir(dir, sizeof dir)) skip_init(dir);
     GfxWarmEnt *all = NULL;
@@ -2974,7 +2974,7 @@ static void lb_start(const uint32_t pr_hist[16], const uint32_t fs_hist[4]) {
     plat_add32(&LB.running, started - t);
     LB.threads = started;
     rt_log("vk_pipeline: stage library prebuild: %zu compute pipelines and %zu recorded variants' libraries "
-           "(TOTK_LIB_PREBUILD_KEEP %d) on %d idle-priority threads; library state clamp %u, polygon mode %u, depth "
+           "(AC_LIB_PREBUILD_KEEP %d) on %d idle-priority threads; library state clamp %u, polygon mode %u, depth "
            "-w..w %u, samples %u", n_cs < n ? n_cs : n, n > n_cs ? n - n_cs : 0, LB.keep_n, started, LB.clamp, LB.poly,
            LB.minus_w, LB.samples);
 }
@@ -3081,7 +3081,7 @@ int vk_pipeline_prepare_shaders(void) {
     char dir[PLAT_PATH_MAX * 2];
     if (!cache_dir(dir, sizeof dir)) return 1;
     int cpus = (int)plat_cpu_usable();
-    const char *pe = cfg_get("TOTK_PREWARM_XLATE");   // no fixed default: half the CPUs, at most 16, when unset
+    const char *pe = cfg_get("AC_PREWARM_XLATE");   // no fixed default: half the CPUs, at most 16, when unset
     int procs = pe && *pe ? atoi(pe) : cpus / 2 > 16 ? 16 : cpus / 2;
     int rc = gfx_shader_prepare_seed(dir, cpus, procs < 1 ? 1 : procs);
     if (!rc) lb_warm_prepared(dir);

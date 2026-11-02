@@ -1,12 +1,12 @@
 // Cheats of the mods' Atmosphere cheat files (cheats.h). Each enabled mod the port can use (mods.h) may hold
 // <build id>.txt in its cheats folder, the build id the first 8 bytes of main's NSO build id, as Atmosphere and the
-// emulators name it; the file name's case does not matter. Each cheat's switch is the setting TOTK_CHEAT_<hash>
-// (cheat_<hash> under [cheats] in totk.ini), the hash FNV-1a 32 of "<mod folder name>/<cheat name>", so two mods'
+// emulators name it; the file name's case does not matter. Each cheat's switch is the setting AC_CHEAT_<hash>
+// (cheat_<hash> under [cheats] in astralchain.ini), the hash FNV-1a 32 of "<mod folder name>/<cheat name>", so two mods'
 // cheats of one name keep their own switches.
 //
 // Code cheats (opcode 0 writes into main's code) cannot be applied here: the game's code is lifted C. tools/cheats.py
 // turns the code cheats of every mod into patch sets cheat_<hash> when the game is built and writes
-// build-cache\cheats.status next to totk.exe, one line per cheat: name hash, content hash, kind, buttons, note
+// build-cache\cheats.status next to astralchain.exe, one line per cheat: name hash, content hash, kind, buttons, note
 // (tools/cheats.py has the format). A cheat whose status line is missing or has another content hash was added or
 // edited after the build: a data cheat runs anyway, a code cheat waits for the setup to run again.
 //
@@ -51,7 +51,7 @@ typedef struct {
 static Cheat *g_cheats;
 static int g_n, g_cap, g_vm;   // g_vm: some cheat needs cheats_frame
 static char g_file[64];        // "<build id>.txt"
-static char g_dir[PLAT_PATH_MAX];   // the folder of totk.exe, with a trailing separator
+static char g_dir[PLAT_PATH_MAX];   // the folder of astralchain.exe, with a trailing separator
 static int g_files;            // mods whose file was read
 static uint64_t g_main, g_main_size, g_code_end;   // main's image; its code with the padding up to .rodata
 
@@ -446,7 +446,7 @@ static void plain_name(char *s) {
 // lacks (CHEAT_REBUILD) or ExeFS patch files it lacks (mods_exefs_pending), the game runs it and exits; the setup lifts
 // and compiles them in and starts the game again.
 // build-cache\rebuild.skip holds the key of the cheats a rebuild was started for: a rebuild that failed or was
-// cancelled leaves them unbuilt, and the same set does not start it again. TOTK_MODS_REBUILD=off never starts it.
+// cancelled leaves them unbuilt, and the same set does not start it again. AC_MODS_REBUILD=off never starts it.
 // Scripted runs (--seconds, --boot) never start it.
 static void rebuild_if_needed(const char *dir) {
     uint32_t key = 0x811C9DC5u;
@@ -467,7 +467,7 @@ static void rebuild_if_needed(const char *dir) {
     char *old = read_text(skip_path);
     if (old) snprintf(skip, sizeof skip, "%.8s", old);
     free(old);
-    const char *why = !strcmp(cfg_value("TOTK_MODS_REBUILD"), "off") ? "mods_rebuild = off"
+    const char *why = !strcmp(cfg_value("AC_MODS_REBUILD"), "off") ? "mods_rebuild = off"
                     : rt_config()->seconds || rt_config()->boot   ? "a scripted run"
                     : !strcmp(skip, want)                           ? "the last rebuild for them failed or was cancelled"
                                                                     : NULL;
@@ -554,7 +554,7 @@ void cheats_init(void) {
         c->content = fnv(t, tl);
         snprintf(content, sizeof content, "%08X", c->content);
         free(t);
-        snprintf(c->info.key, sizeof c->info.key, "TOTK_CHEAT_%s", key);
+        snprintf(c->info.key, sizeof c->info.key, "AC_CHEAT_%s", key);
         int master = c->info.kind == CHEAT_MASTER;
         char *f[5];
         CheatKind kind;

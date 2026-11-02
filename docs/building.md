@@ -16,7 +16,7 @@ Versions are the ones the build was verified with; newer patch releases are fine
 |---|---|---|---|
 | MSYS2 UCRT64 | clang/lld 23.1.3 | msys2.org installer to `C:\msys64`, packages below | compiling the generated C and the runtime |
 | Visual Studio Build Tools | 2026, C++ workload, Windows SDK 10.0.26100 | winget `Microsoft.VisualStudio.BuildTools` with `--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended` | the linker .NET NativeAOT calls |
-| .NET SDK | 10.0 | winget `Microsoft.DotNet.SDK.10` | the shader translator (`totk_xlate.exe`) |
+| .NET SDK | 10.0 | winget `Microsoft.DotNet.SDK.10` | the shader translator (`ac_xlate.exe`) |
 | Vulkan SDK | 1.4.363 | winget `KhronosGroup.VulkanSDK` | validation layers, `vulkaninfo` |
 | uv | 0.13 | standalone installer from astral.sh | the two Python environments |
 | hactool | 1.4.0 @ `1d64a83` | `.venv\Scripts\python tools\build_hactool.py`, see below | NCA and update extraction |
@@ -79,14 +79,14 @@ of them.
    ```
 
 4. Shader translator (no game files; again after a change to its sources, and `tools\make_release.py` stops on an older
-   one). This publishes `build\xlate\totk_xlate.exe`:
+   one). This publishes `build\xlate\ac_xlate.exe`:
 
    ```powershell
    .venv\Scripts\python tools\build_xlate.py
    ```
 
 5. Lift the modules to C, write the RomFS overlay (the frame-rate fix), then compile and link
-   `build\<ver>\totk.exe`:
+   `build\<ver>\astralchain.exe`:
 
    ```powershell
    .venv\Scripts\python recomp\gen.py --exefs build\extracted\<ver>\exefs --out generated\<ver> --patches recomp\patches-<ver>.txt
@@ -110,7 +110,7 @@ of them.
    `SDL3.dll`, `libiconv-2.dll` and `libopus-0.dll` next to the exe.
    For Xbox button prompts, run `make_romfs_patches.py` twice more, with `--prompts xbox` and `--prompts xbox-label`:
    they write `build\<ver>\romfs-patches-xbox` and `romfs-patches-xbox-label` ([controls.md](controls.md), "Xbox
-   button prompts"), which `build_game.py` copies next to `totk.exe` like `romfs-patches`.
+   button prompts"), which `build_game.py` copies next to `astralchain.exe` like `romfs-patches`.
 
 6. Prepare the shaders (once per build folder and translator). It needs `refs\MacNativeGames` (`tools\fetch_refs.sh`)
    for the shared shader list:
@@ -121,28 +121,28 @@ of them.
 
    Without this step the first launch compiles shaders and pipelines during play and stutters until the caches fill.
    The AMD driver keeps its pipeline cache per exe path and holds a limited amount: preparing another build folder can
-   evict this one's. `totk.exe --warm-shaders` rebuilds it from the shader cache.
+   evict this one's. `astralchain.exe --warm-shaders` rebuilds it from the shader cache.
    When the driver's shader compiler crashes on a variant (NVIDIA 615.78.08 on an RTX 5080 does, issue #30),
    `prepare_shaders.py` runs the driver step again with `--warm-shaders`, up to three times, without the variants the
    driver was building at the crash. `shader-prepare-skip.txt` next to the exe lists them with the GPU and driver
    version; they build at their first draw instead, another driver version builds them again, and so does deleting the
    file.
 
-7. Run. The game keeps running when its window loses the focus (`assume_focus = 1` in `totk.ini`, the default; the
+7. Run. The game keeps running when its window loses the focus (`assume_focus = 1` in `astralchain.ini`, the default; the
    Game tab switches it). With 0 it pauses, as it does on the Switch when Home is pressed.
 
    ```powershell
-   build\<ver>\totk.exe
+   build\<ver>\astralchain.exe
    ```
 
-Settings live in `totk.ini` next to `totk.exe` ([totk.ini.example](../totk.ini.example) lists them). Saves go to
+Settings live in `astralchain.ini` next to `astralchain.exe` ([astralchain.ini.example](../astralchain.ini.example) lists them). Saves go to
 `build\profile` for `v121` and `build\profile-<ver>` for other versions (`build_game.py --profile` changes it).
 
 ### Portable folder
 
 `.venv\Scripts\python tools\package_build.py --version <ver>` writes `build\<ver>-portable`, which runs on another of
 your machines without MSYS2, Python or .NET. `romfs.bin` stays out unless you pass `--with-romfs`; otherwise put it in
-`romfs\` next to the exe or point `TOTK_ROMFS` at its folder. Run `totk.exe --prepare-shaders` once in the copied
+`romfs\` next to the exe or point `AC_ROMFS` at its folder. Run `astralchain.exe --prepare-shaders` once in the copied
 folder. The folder holds code and data derived from your game: for your own machines only.
 
 ## Linux (in progress)
@@ -167,7 +167,7 @@ Requirements:
   version the Windows release pins (3.4.0) into `toolchain/vma/` on first use and checks its hash.
 
 The steps are the Windows ones with POSIX paths: `.venv/bin/python` in place of `.venv\Scripts\python`, and `totk` in
-place of `totk.exe`. `build_game.py` takes clang, lld and Ninja from PATH (or the ones in `<dir>/bin` with
+place of `astralchain.exe`. `build_game.py` takes clang, lld and Ninja from PATH (or the ones in `<dir>/bin` with
 `--toolchain <dir>`) and links against the system libraries, with `libstdc++` static and an `$ORIGIN` rpath;
 `build_hactool.py` builds `hactool` with make. `tools/prepare_shaders.py` reads the shader list from
 `refs/MacNativeGames` at `origin/HEAD`, which must be the pinned commit with its history (the list format changed later).
@@ -181,11 +181,11 @@ re-protecting imported memory invalidates the driver's userptr buffer on every s
 amdgpu), and importing pins the pages, which drops their write protection. Each CPU-visible pool therefore gets a
 host-visible copy (shadow storage, `runtime/vk_memory.c`): the pages the CPU wrote go in before each submit, and the GPU's
 writes come back at its fence. In play that costs about 0.2 ms a frame and doubles the memory of those pools (about
-1.1 GB). `TOTK_SHADOW=1` turns it on under Windows too. The Steam Deck's RADV has `VK_EXT_external_memory_host` as
+1.1 GB). `AC_SHADOW=1` turns it on under Windows too. The Steam Deck's RADV has `VK_EXT_external_memory_host` as
 well: the shadow copies are chosen for the measured cost above, not for a missing extension.
 
 The Deck's GPU (Van Gogh) has no native ASTC, so its textures go through the compute decoder (`runtime/vk_astc.c`,
-`TOTK_ASTC`) as on desktop AMD GPUs without it; frame times measured there include it.
+`AC_ASTC`) as on desktop AMD GPUs without it; frame times measured there include it.
 
 ## Checks
 
@@ -193,11 +193,11 @@ Before a commit:
 
 - `python tools/check_content.py --staged`: nothing game-derived is staged. CI runs the same check;
   `git config core.hooksPath .githooks` runs it before each local commit.
-- `build\<ver>\totk.exe --selftest`: layout, dispatch table and host-function registry, without game files.
+- `build\<ver>\astralchain.exe --selftest`: layout, dispatch table and host-function registry, without game files.
 
 A change to the button prompts (`tools/make_romfs_patches.py --prompts`, `tools/button_icons.py`) passes
 `.venv-py314\Scripts\python tests\romfs_prompts_test.py`, which runs the tool on a RomFS it makes itself (no game
-files); a change to the settings passes `totk.exe --probe-cfg`.
+files); a change to the settings passes `astralchain.exe --probe-cfg`.
 
 The lifter (`recomp/`) and the CPU headers (`runtime/cpu.h`, `runtime/simd.h`) are checked against Unicorn. Every lifter
 change passes these, all run with `.venv`:
@@ -215,7 +215,7 @@ change passes these, all run with `.venv`:
 A `--cpu v2` build passes the same differential tests with `--cflags=-march=x86-64-v2`; they compile `runtime/fma.c`
 too, so they check the software fma the v2 build links rather than the C runtime's.
 
-Runtime probes, each a mode of `totk.exe` (the list is at the top of `runtime/main.c`): `--probe-kernel`,
+Runtime probes, each a mode of `astralchain.exe` (the list is at the top of `runtime/main.c`): `--probe-kernel`,
 `--probe-vkexec`, `--probe-nvn-tex` and `--probe-shader` cover most runtime changes. `--probe-shader` and the draw
 part of `--probe-vkexec` translate shaders of the census below: they look for `build/<ver>/shaders/jobs.json` of the
 exe's own version first, then of the other one.

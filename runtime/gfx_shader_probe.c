@@ -159,8 +159,8 @@ int probe_shader(void) {
     char dir[PLAT_PATH_MAX];
     char tmp[PLAT_PATH_MAX];
     if (!plat_temp_dir(tmp, sizeof tmp)) strcpy(tmp, ".");
-    snprintf(dir, sizeof dir, "%s/totk-shader-probe-%u", tmp, plat_process_id());
-    CHECK(plat_setenv("TOTK_SHADER_CACHE", dir), "cannot set TOTK_SHADER_CACHE");
+    snprintf(dir, sizeof dir, "%s/astralchain-shader-probe-%u", tmp, plat_process_id());
+    CHECK(plat_setenv("AC_SHADER_CACHE", dir), "cannot set AC_SHADER_CACHE");
 
     // pass 1: translate through the service
     const GfxShader *first[WANT];

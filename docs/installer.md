@@ -1,13 +1,13 @@
 # Installer
 
-A public release that turns the player's own game files into a playable TotK folder. The release carries no game
+A public release that turns the player's own game files into a playable Astral Chain folder. The release carries no game
 data and no code derived from the game: the installer builds the game on the player's machine. The installed folder
 holds only the game; the installer and its tools stay outside it.
 
 ## What the player does
 
-1. Downloads `TotK-Setup-<version>-windows.zip` from GitHub Releases (none is published yet), unpacks it anywhere and
-   starts `TotK-Setup.exe`.
+1. Downloads `Astral Chain-Setup-<version>-windows.zip` from GitHub Releases (none is published yet), unpacks it anywhere and
+   starts `Astral Chain-Setup.exe`.
 2. Picks:
    - the base game (XCI or NSP) and the 1.1.0, 1.2.1 or 1.4.3 update (NSP);
    - their `prod.keys`;
@@ -15,14 +15,14 @@ holds only the game; the installer and its tools stay outside it.
      needed for Chinese, Korean and Traditional Chinese text;
    - the game language and the install folder.
 3. Waits for the setup, one time. The window shows each step and its progress.
-4. Plays `totk.exe` from the install folder. The installer and the source NSP or XCI can be deleted.
+4. Plays `astralchain.exe` from the install folder. The installer and the source NSP or XCI can be deleted.
 
 The install folder (`main.c` `portable_paths()` reads this layout; it stays portable):
 
 ```
 <install folder>/
-  totk.exe, SDL3.dll, libopus-0.dll, totk_xlate.exe
-  totk.ini                       language; the other keys as commented defaults (totk.ini.example)
+  astralchain.exe, SDL3.dll, libopus-0.dll, ac_xlate.exe
+  astralchain.ini                       language; the other keys as commented defaults (astralchain.ini.example)
   exefs/, romfs/                 extracted from the player's files
   shared-fonts/                  the Switch system fonts, with Chinese, Korean or Traditional Chinese text
   profile/                       saves
@@ -35,7 +35,7 @@ The install folder (`main.c` `portable_paths()` reads this layout; it stays port
 ## Updating the port
 
 The player runs a newer installer on the same folder. It reads `totk-install.json`, keeps `romfs/`, `exefs/`,
-`shared-fonts/`, `profile/` and `totk.ini` after checking their hashes, rebuilds `totk.exe` and re-prepares the
+`shared-fonts/`, `profile/` and `astralchain.ini` after checking their hashes, rebuilds `astralchain.exe` and re-prepares the
 shaders. A newer release that changes nothing game-derived skips the rebuild.
 
 Given an update file other than the recorded one (1.1.0, then 1.2.1, then 1.4.3), the installer extracts and builds again from it
@@ -58,12 +58,12 @@ loads the saves 1.4.3 wrote.
    tools refuse costs those cheats or patches, not the install.
 5. **Compile** the generated C, `modules.c`, `romfs.c`, `patches.c` and `ov_zstd.c` (they bake the per-install layout, RomFS
    hashes and the game version's patch page) and link
-   them with the prebuilt runtime library for the host's level (`libtotkrt.a` or `libtotkrt-v2.a`) into `totk.exe`
+   them with the prebuilt runtime library for the host's level (`libacrt.a` or `libacrt-v2.a`) into `astralchain.exe`
    (`build_game.py --runtime-lib`; about 3 min on 24 cores).
 6. **Prepare** (only when the runtime, the translator or the game version changed, not for a new lift) the RomFS
    patches and the shaders (`tools/make_romfs_patches.py`, `tools/prepare_shaders.py`,
-   `totk.exe --prepare-shaders`) in the install folder, then fold the shader cache's loose files (four per shader, about
-   117,000) into `shader-cache/shader-cache.pack` (`tools/pack_shader_cache.py`). totk.exe reads the pack first and
+   `astralchain.exe --prepare-shaders`) in the install folder, then fold the shader cache's loose files (four per shader, about
+   117,000) into `shader-cache/shader-cache.pack` (`tools/pack_shader_cache.py`). astralchain.exe reads the pack first and
    writes the translations it makes in play as loose files; running the tool again with the game closed folds those in.
    The patches are written three times: `romfs-patches`, and `romfs-patches-xbox` and `romfs-patches-xbox-label`
    (`--prompts`: Xbox button prompts for `prompts = xbox`, the first for `pad_layout = nintendo`, the second for `xbox`
@@ -85,7 +85,7 @@ and a few dozen chunks, not a full compile, and the shaders stay prepared.
 `build-cache/rebuild.txt` holds the command that opens the setup window in its rebuild mode on the install folder
 (`installer/gui.py --rebuild <install folder>`, started through `python -c` so the release folder is on `sys.path`
 whatever the working folder), one argument per line. When an enabled mod has code cheats or ExeFS patch files the build
-lacks, `totk.exe` runs it at start and exits (`runtime/cheats.c` `rebuild_if_needed`); the
+lacks, `astralchain.exe` runs it at start and exits (`runtime/cheats.c` `rebuild_if_needed`); the
 window runs the setup on the folder at once and starts the game again when it succeeds. A failed or cancelled rebuild
 offers to start the game with the code it has; `build-cache/rebuild.skip` then keeps the same files from starting it
 again, until "Rebuild the game now" on the Cheats or Mods tab. `[mods] mods_rebuild = off` turns it off. The rebuild
@@ -131,17 +131,17 @@ python -m installer --base FILE --update FILE --keys FILE --lang CODE --dest DIR
 The unpacked release; `tools/make_release.py` assembles it and `--zip` packs it:
 
 ```
-TotK-Setup.exe        starts python/pythonw.exe -m installer.gui (installer/launcher/launcher.c, no console)
+Astral Chain-Setup.exe        starts python/pythonw.exe -m installer.gui (installer/launcher/launcher.c, no console)
 installer/            the installer: steps, CLI, window, en/ru/zh-Hans text catalog
 python/               Python 3.14.9 embeddable + numpy, lz4, cryptography, cffi, pycparser (+ tkinter for the window)
 recomp/, tools/       the lifter and the build, extraction and shader scripts the steps run (copied from the repo)
 llvm/                 llvm-mingw, x86_64-only subset (Apache-2.0 with LLVM exception; mingw-w64 parts permissive)
-runtime/              libtotkrt.a, libtotkrt-v2.a and the headers the generated code and modules.c/romfs.c/patches.c
+runtime/              libacrt.a, libacrt-v2.a and the headers the generated code and modules.c/romfs.c/patches.c
                       include
-bin/                  totk_xlate.exe, hactool.exe, SDL3.dll, libopus-0.dll, ninja.exe
+bin/                  ac_xlate.exe, hactool.exe, SDL3.dll, libopus-0.dll, ninja.exe
 data/                 shader_list.tsv (MacNativeGames, MIT)
 THIRD_PARTY_NOTICES.md
-totk.ini.example, VERSION  the default ini; the release string (the repository's VERSION plus the commit)
+astralchain.ini.example, VERSION  the default ini; the release string (the repository's VERSION plus the commit)
 ```
 
 - SDL3 comes from the upstream release, not MSYS2: MSYS2's DLL imports the LGPL libiconv.
@@ -151,7 +151,7 @@ totk.ini.example, VERSION  the default ini; the release string (the repository's
 
 ## Linux release
 
-`tools/make_release_linux.py` builds the same setup for Linux and packs it as `TotK-Setup-x86_64.AppImage` (the static
+`tools/make_release_linux.py` builds the same setup for Linux and packs it as `Astral Chain-Setup-x86_64.AppImage` (the static
 type-2 runtime: no libfuse2 needed on the host). The player makes it executable and starts it; on a Steam Deck, from
 Desktop Mode. Building the release also needs `make` and `pkg-config`. The bundled Tcl/Tk 9.0.4 is rebuilt with
 Xft against the sniper sysroot so Russian text uses system TrueType fonts. The setup builds the game into the folder they pick, as on Windows, and the game is `totk` there with
@@ -160,14 +160,14 @@ Xft against the sniper sysroot so Russian text uses system TrueType fonts. The s
 ```
 AppRun                starts python/bin/python3 -m installer.gui (no bytecode written into the read-only mount)
 totk-setup.desktop, totk-setup.png
-installer/, recomp/, tools/, data/, licenses/, THIRD_PARTY_NOTICES.md, totk.ini.example, VERSION   as on Windows
+installer/, recomp/, tools/, data/, licenses/, THIRD_PARTY_NOTICES.md, astralchain.ini.example, VERSION   as on Windows
 python/               python-build-standalone 3.14 (with tkinter) + the installer's packages; a .pth puts the folder,
                       tools/ and recomp/ on sys.path
 llvm/                 LLVM 23 (clang, lld, llvm-ar) and llvm/sysroot: the files of the Steam Runtime 3 "sniper" SDK the
                       game's compile and link read (about 130 files)
-runtime/              libtotkrt.a, libtotkrt-v2.a, headers, the install-side sources, totk.png; deps/ with the Vulkan
+runtime/              libacrt.a, libacrt-v2.a, headers, the install-side sources, totk.png; deps/ with the Vulkan
                       headers, VMA and a static zstd
-bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
+bin/                  ac_xlate, hactool, ninja, libSDL3.so.0
 ```
 
 - What we compile is built against the sniper sysroot (glibc 2.31): the game, hostcheck, hactool and the translator
@@ -195,7 +195,7 @@ bin/                  totk_xlate, hactool, ninja, libSDL3.so.0
   ...`), which prints one JSON progress event per line. Tests and CI use the CLI.
 - Paths may hold any Unicode characters (a Cyrillic user name puts the temp and install folders under it). Every exe
   the setup runs or builds reads its arguments and paths as UTF-8 through an `activeCodePage` manifest: hactool
-  (our patch, [building.md](building.md)), totk.exe (`runtime/totk.rc`), ninja (upstream). The Python steps write
+  (our patch, [building.md](building.md)), astralchain.exe (`runtime/totk.rc`), ninja (upstream). The Python steps write
   their files and logs as UTF-8, and `build_game.py` quotes paths with spaces on its Ninja command lines.
 - A game file whose data fails its hash checks or ends early stops the setup with `check.input_damaged`, which names
   the file and asks to copy it again (`extract.DamagedFile`). A failed merge checks the base Program NCA alone to tell

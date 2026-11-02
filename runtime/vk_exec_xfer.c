@@ -417,7 +417,7 @@ static void copy_buffer_image(VkExec *ex, const p_copy_b2t *p, int to_image) {
     Sub s;
     if (!sub_resolve(p->tex, &p->view, p->has_view, &p->r, 1, &s)) return;
     if (s.img->scale > 1) {   // the buffer holds the game's texel count, the image more
-        warn_once(W_REGION, "buffer copy of a shadow map enlarged by TOTK_SHADOW_SCALE: skipped");
+        warn_once(W_REGION, "buffer copy of a shadow map enlarged by AC_SHADOW_SCALE: skipped");
         return;
     }
     uint64_t size;

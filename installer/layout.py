@@ -7,12 +7,12 @@ Release (docs/installer.md "Release layout"), root = the unpacked folder:
     recomp/, tools/         the lifter and the scripts; recomp/patches-<v>.txt, tools/data/expected-v<version>.json for
                             each supported update (SUPPORTED)
     llvm/                   llvm-mingw (bin/clang.exe)
-    runtime/                libtotkrt.a and libtotkrt-v2.a (x86-64-v3 / v2), the headers, install-side sources (romfs.c,
-                            patches.c, ov_zstd.c) and totk.ico; runtime/deps/ holds
+    runtime/                libacrt.a and libacrt-v2.a (x86-64-v3 / v2), the headers, install-side sources (romfs.c,
+                            patches.c, ov_zstd.c) and astralchain.ico; runtime/deps/ holds
                             include/ + lib/ of Vulkan, SDL3, Opus, libvpx and VMA (build_game.py --deps)
-    bin/                    totk_xlate.exe (+ totk_xlate.id), hactool.exe, ninja.exe, SDL3.dll, libopus-0.dll
+    bin/                    ac_xlate.exe (+ ac_xlate.id), hactool.exe, ninja.exe, SDL3.dll, libopus-0.dll
     data/shader_list.tsv    the MacNativeGames shader list
-    totk.ini.example
+    astralchain.ini.example
     VERSION                 the release version, one line
     temp/                   the default temp folder (created)
 
@@ -22,8 +22,8 @@ against), runtime/deps/ with include/ and the static Opus, libvpx and zstd, bin/
 
 Dev mode, root = a repository checkout (no python/python.exe): build/py314-embed/py/python.exe (the embeddable
 Python the release ships, with the same packages), else this Python; toolchain/llvm-mingw-*/ and toolchain/deps-mingw;
-runtime/ as the sources with build/install-rtlib/libtotkrt.a and libtotkrt-v2.a (tools/build_game.py --make-runtime-lib
---out build/install-rtlib, once per --cpu); MSYS2 UCRT64 ninja.exe; toolchain/hactool; build/xlate/totk_xlate.exe; the shader list from
+runtime/ as the sources with build/install-rtlib/libacrt.a and libacrt-v2.a (tools/build_game.py --make-runtime-lib
+--out build/install-rtlib, once per --cpu); MSYS2 UCRT64 ninja.exe; toolchain/hactool; build/xlate/ac_xlate.exe; the shader list from
 refs/MacNativeGames; build/install-temp. The version is VERSION with -dev and the commit: 0.1.0-dev+973c626. On Linux,
 dev mode takes clang, lld and ninja from PATH and the system's libraries (no deps folder, no SDL3 copy).
 """
@@ -56,16 +56,16 @@ class Layout:
     llvm: Path            # llvm-mingw tree; on Linux the tree with bin/clang (a release's, or the system's /usr)
     deps: Path | None     # include/ and lib/ for the link; None: the system's (Linux dev mode)
     runtime: Path         # runtime headers and install-side sources
-    runtime_lib: Path     # libtotkrt.a
+    runtime_lib: Path     # libacrt.a
     ninja: Path
     hactool: Path
-    xlate: Path           # totk_xlate.exe; a totk_xlate.id beside it is copied too
+    xlate: Path           # ac_xlate.exe; a ac_xlate.id beside it is copied too
     dlls: tuple = field(default_factory=tuple)
     shader_list: Path | None = None   # None: dev, read from refs/MacNativeGames through git
     ini_example: Path | None = None
     temp: Path | None = None
     sysroot: Path | None = None       # Linux release: what the game links against, instead of the host's
-    runtime_lib_v2: Path | None = None   # libtotkrt-v2.a: the runtime for CPUs without AVX2 (build_game.py --cpu v2)
+    runtime_lib_v2: Path | None = None   # libacrt-v2.a: the runtime for CPUs without AVX2 (build_game.py --cpu v2)
 
     @property
     def clang(self):
@@ -122,12 +122,12 @@ def release_layout(root):
         python=release_python(root),
         tools=root / 'tools', recomp=root / 'recomp',
         llvm=root / 'llvm', deps=root / 'runtime' / 'deps', runtime=root / 'runtime',
-        runtime_lib=root / 'runtime' / 'libtotkrt.a',
-        runtime_lib_v2=root / 'runtime' / 'libtotkrt-v2.a',
+        runtime_lib=root / 'runtime' / 'libacrt.a',
+        runtime_lib_v2=root / 'runtime' / 'libacrt-v2.a',
         ninja=root / 'bin' / ('ninja' + EXE), hactool=root / 'bin' / ('hactool' + EXE),
-        xlate=root / 'bin' / ('totk_xlate' + EXE),
+        xlate=root / 'bin' / ('ac_xlate' + EXE),
         dlls=(root / 'bin' / 'SDL3.dll', root / 'bin' / 'libopus-0.dll') if WIN else (root / 'bin' / 'libSDL3.so.0',),
-        shader_list=root / 'data' / 'shader_list.tsv', ini_example=root / 'totk.ini.example',
+        shader_list=root / 'data' / 'shader_list.tsv', ini_example=root / 'astralchain.ini.example',
         # Linux: None, the install folder's .setup-temp (installer/cli.py): the AppImage is mounted read-only, and on
         # a Steam Deck /home is often too full for the generated C while the install folder is on the SD card
         temp=root / 'temp' if WIN else None,
@@ -148,12 +148,12 @@ def dev_layout(root):
         python=embed if embed.is_file() else Path(sys.executable),
         tools=root / 'tools', recomp=root / 'recomp',
         llvm=trees[-1] if trees else root / 'toolchain' / 'llvm-mingw-missing', deps=deps,
-        runtime=root / 'runtime', runtime_lib=root / 'build' / 'install-rtlib' / 'libtotkrt.a',
-        runtime_lib_v2=root / 'build' / 'install-rtlib' / 'libtotkrt-v2.a',
+        runtime=root / 'runtime', runtime_lib=root / 'build' / 'install-rtlib' / 'libacrt.a',
+        runtime_lib_v2=root / 'build' / 'install-rtlib' / 'libacrt-v2.a',
         ninja=UCRT / ('ninja' + EXE), hactool=root / 'toolchain' / 'hactool' / ('hactool' + EXE),
-        xlate=root / 'build' / 'xlate' / ('totk_xlate' + EXE),
+        xlate=root / 'build' / 'xlate' / ('ac_xlate' + EXE),
         dlls=tuple(sorted((deps / 'bin').glob('*.dll'))),
-        shader_list=None, ini_example=root / 'totk.ini.example', temp=root / 'build' / 'install-temp')
+        shader_list=None, ini_example=root / 'astralchain.ini.example', temp=root / 'build' / 'install-temp')
 
 
 def dev_commit(root):
@@ -168,11 +168,11 @@ def dev_layout_posix(root):
         root=root, dev=True, release=f'{semver}-dev+{dev_commit(root) or "unknown"}',
         python=Path(sys.executable), tools=root / 'tools', recomp=root / 'recomp',
         llvm=Path(clang).parent.parent if clang else root / 'toolchain' / 'clang-missing', deps=None,
-        runtime=root / 'runtime', runtime_lib=root / 'build' / 'install-rtlib' / 'libtotkrt.a',
-        runtime_lib_v2=root / 'build' / 'install-rtlib' / 'libtotkrt-v2.a',
+        runtime=root / 'runtime', runtime_lib=root / 'build' / 'install-rtlib' / 'libacrt.a',
+        runtime_lib_v2=root / 'build' / 'install-rtlib' / 'libacrt-v2.a',
         ninja=Path(ninja) if ninja else root / 'toolchain' / 'ninja-missing',
-        hactool=root / 'toolchain' / 'hactool' / 'hactool', xlate=root / 'build' / 'xlate' / 'totk_xlate',
-        shader_list=None, ini_example=root / 'totk.ini.example', temp=root / 'build' / 'install-temp')
+        hactool=root / 'toolchain' / 'hactool' / 'hactool', xlate=root / 'build' / 'xlate' / 'ac_xlate',
+        shader_list=None, ini_example=root / 'astralchain.ini.example', temp=root / 'build' / 'install-temp')
 
 
 def find(root=None):

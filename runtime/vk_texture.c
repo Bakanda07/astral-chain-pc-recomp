@@ -90,7 +90,7 @@ static Tex *rel_head, *rel_tail;   // released entries in release order (sweep_r
 static uint64_t n_uploads, n_reuploads;
 // Re-uploads since the last perf line (tex_lock): all, and those of textures a WriteTexels wrote since their last upload.
 static uint64_t ru_n, ru_bytes, ru_ns, ru_wt_n, ru_wt_bytes, ru_wt_ns;
-// TOTK_TEX_ALIAS (default on; =0: a new image over live storage starts empty): a new descriptor over the storage of a
+// AC_TEX_ALIAS (default on; =0: a new image over live storage starts empty): a new descriptor over the storage of a
 // live image that the GPU wrote gets that image's content (alias_copy). Counts since the last log line.
 static int tex_alias = -1;
 static uint64_t n_alias_copied, n_alias_upload, n_alias_uninit;
@@ -110,7 +110,7 @@ static uint32_t slots_gen = 1;
 static uint32_t samp_gen = 1;   // bumped whenever a sampler slot is registered: vk_sampler_by_id may answer otherwise
 static uint64_t n_checks;    // draw-binding storage checks (make_fresh_snap) since the last perf line
 // tex_gen per storage address (hashed): a slot resolves through the entries at its own address only (slot_resolve), so
-// a slot's resolution stays valid while its address's generation does. TotK finalizes and initializes transient
+// a slot's resolution stays valid while its address's generation does. Astral Chain finalizes and initializes transient
 // textures every frame: about 90 tex_gen and 160 slots_gen bumps per frame in the monsters fight, one every 16 draws,
 // which emptied every cache keyed on the global generations.
 #define AGEN_N 4096
@@ -292,7 +292,7 @@ static void init_image(Tex *e, VkCommandBuffer cb) {
     }
 }
 
-// TOTK_SHADOW_SCALE (1 to 4): the game's shadow maps are made this many times larger on each side. TotK renders its
+// AC_SHADOW_SCALE (1 to 4): the game's shadow maps are made this many times larger on each side. Astral Chain renders its
 // sun cascades into a 960x960 DEPTH16 2D array of 4 layers and its static shadows into 1440x1440 and 720x720 arrays of 2,
 // whatever the output resolution, and shrinks the cascades under load (872, 848, 800, 480 and so on). Those are made
 // larger here: render passes into them scale the game's viewports and scissors (vk_exec.c resolve_rt, pass_scale),
@@ -302,7 +302,7 @@ static void init_image(Tex *e, VkCommandBuffer cb) {
 static int shadow_scale(void) {
     static int scale = -1;
     if (scale < 0) {
-        int s = cfg_int("TOTK_SHADOW_SCALE");
+        int s = cfg_int("AC_SHADOW_SCALE");
         s = s < 1 ? 1 : s > 4 ? 4 : s;
         rt_log("vk: shadow map scale %d", s);
         scale = s;
@@ -380,14 +380,14 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
                             .samples = (VkSampleCountFlagBits)samples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = usage,
                             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
     int bw, bh, block_views = 0;
-    // TOTK_BLOCK_VIEWS_3D (default 0): a 3D BC image also gets block views. On RDNA2 cards (driver 26.10.1, issue #5)
+    // AC_BLOCK_VIEWS_3D (default 0): a 3D BC image also gets block views. On RDNA2 cards (driver 26.10.1, issue #5)
     // the 32x32x32 BC4 volume the game creates at the logo, made BLOCK_TEXEL_VIEW_COMPATIBLE and 2D_ARRAY_COMPATIBLE,
     // took a GPU write just past the end of its memory: device lost at the first submit after it when the image ended
     // its memory block. Draws into a 3D BC image go through a stand-in instead (vk_exec.c bc_target).
     static int bv3d = -1;
     if (bv3d < 0) {
         bv3d = rt_knob("BLOCK_VIEWS_3D", "0");
-        rt_log("vk: 3D BC textures %s (TOTK_BLOCK_VIEWS_3D=%d)", bv3d ? "get block views (renderable)" : "have no block views",
+        rt_log("vk: 3D BC textures %s (AC_BLOCK_VIEWS_3D=%d)", bv3d ? "get block views (renderable)" : "have no block views",
                bv3d);
     }
     if (!ds && samples == 1 && f.vk == f.ideal && nvn_fmt_bpb(d->format, &bw, &bh) && bw == 4 && bh == 4 &&
@@ -547,7 +547,7 @@ static void destroy_tex(Tex *e) {
 }
 
 // Released entries with another descriptor at the same address are replaced; past RELEASED_MAX released entries the
-// oldest one goes at each release (it comes back on demand, a mirrored one re-uploaded from its storage). TotK
+// oldest one goes at each release (it comes back on demand, a mirrored one re-uploaded from its storage). Astral Chain
 // finalizes and initializes transient textures every frame, so a released entry is mostly taken back within frames.
 // Dropping all of them at once when the count passed 4096 destroyed thousands of images in one frame: 333-422 ms
 // frames every 40-50 s on a GTX 1050 Ti, then the textures still in use were created and uploaded again.
@@ -556,7 +556,7 @@ static void sweep_released(void) {
     while (nreleased > RELEASED_MAX && rel_head) destroy_tex(rel_head);
 }
 
-// TOTK_TEX_VRAM_PRESSURE (percent of the device-local budget, default 90; 0 = off): above it, each submit drops up to
+// AC_TEX_VRAM_PRESSURE (percent of the device-local budget, default 90; 0 = off): above it, each submit drops up to
 // PRESSURE_STEP of the oldest released entries, so a 4 GiB card does not keep RELEASED_MAX released images (each ASTC
 // one decoded to RGBA8) while the heap spills into system memory. A few per submit, for the reason above. Only entries
 // that come back intact are dropped: mirrored ones the GPU never wrote, re-uploaded from their storage. A render target
@@ -568,7 +568,7 @@ static uint64_t n_pressure_drops;
 
 static void sweep_pressure(void) {   // tex_lock held
     if (vram_pressure < 0) {
-        const char *s = cfg_get("TOTK_TEX_VRAM_PRESSURE");
+        const char *s = cfg_get("AC_TEX_VRAM_PRESSURE");
         vram_pressure = s && *s ? atoi(s) : 90;
         if (vram_pressure < 0 || vram_pressure > 100) vram_pressure = 90;
         rt_log("vk: released textures under VRAM pressure: %s%d%%", vram_pressure ? "dropped above " : "off", vram_pressure);
@@ -616,7 +616,7 @@ static void shrink_rgb(int format, const uint8_t *src, uint8_t *dst, size_t n) {
     for (size_t i = 0; i < n; i++, src += 4 * e, dst += 3 * e) memcpy(dst, src, 3 * e);
 }
 
-// TOTK_ASTC=check: the compute decoder's texels of n regions (gpu: the regions one after the other) against
+// AC_ASTC=check: the compute decoder's texels of n regions (gpu: the regions one after the other) against
 // astc_decode_ldr of the same raw blocks (raw: the staging bytes the regions point into).
 static void astc_check(const Tex *e, const uint8_t *raw, const VkAstcRegion *ar, int n, const uint8_t *gpu) {
     static volatile int32_t n_bad;
@@ -656,7 +656,7 @@ static void astc_check(const Tex *e, const uint8_t *raw, const VkAstcRegion *ar,
                (unsigned long long)n_texels, (unsigned long long)n_diff_tex);
 }
 
-// Staging bytes of one part of a texture upload decoded or copied on the CPU (see upload). With TOTK_ASTC=cpu a
+// Staging bytes of one part of a texture upload decoded or copied on the CPU (see upload). With AC_ASTC=cpu a
 // large ASTC array decodes to RGBA8 in one go: a staging buffer of 676682336 bytes failed (-2) on an Intel UHD with
 // 8 GB of shared memory and the game closed before the title screen.
 #define UPLOAD_PART (32ull << 20)   // fits the staging pool (vk_staging takes up to half of its 64 MiB block)
@@ -791,18 +791,18 @@ static int fills_no_page(const Tex *e) {
 }
 
 // A texture that fills no page keeps a copy of its storage bytes from when a GPU write to it was recorded
-// (vk_texture_gpu_written), up to SNAP_MAX bytes; wb_exact (TOTK_WB_EXACT, default on) enables it.
+// (vk_texture_gpu_written), up to SNAP_MAX bytes; wb_exact (AC_WB_EXACT, default on) enables it.
 enum { SNAP_MAX = 4096 };
 static int wb_exact = -1;
 static volatile int32_t n_kept;
 
 // vk_mem_changed over the pages wholly inside e's storage (all of its pages when it fills none): a neighbour that shares
 // the first or last page does not count as a write to e. A texture that fills no page shares all of its pages, so
-// there a page write counts only when e's own bytes differ from the copy taken at the GPU write. TotK's Purah Pad
+// there a page write counts only when e's own bytes differ from the copy taken at the GPU write. Astral Chain's Purah Pad
 // camera renders the ID, screen rect and depth of what is under the reticle into 4x4 targets of 512 bytes, two
 // slots used in turn, and the CPU reads them a frame later. One slot's rect target shares its page with data the CPU
 // writes every frame: without the copy its renders were never written back, the game read a zero rect every other
-// frame and the target's name label blinked. TOTK_WB_EXACT=0 restores the page-only decision.
+// frame and the target's name label blinked. AC_WB_EXACT=0 restores the page-only decision.
 static int storage_rewritten(const Tex *e, uint32_t since, uint32_t *now) {
     uint64_t lo = (e->pub.addr + 0xfff) & ~0xfffull, hi = (e->pub.addr + e->t.L.size) & ~0xfffull;
     if (hi <= lo) lo = e->pub.addr, hi = e->pub.addr + e->t.L.size;
@@ -844,7 +844,7 @@ static void make_fresh_snap(Tex *e) {
     if (ch) upload(e);
 }
 
-// ---------------------------------------------------------------- aliases (TOTK_TEX_ALIAS)
+// ---------------------------------------------------------------- aliases (AC_TEX_ALIAS)
 // Bytes per block and block size of the image's VkFormat (ASTC decodes to RGBA8, RGB expands to RGBA); 0 when the
 // VkFormat substitutes another one of unknown size.
 static int img_block(const Tex *e, int *bw, int *bh) {
@@ -929,7 +929,7 @@ static Tex *entry_of(const tex_t *t) {
     Tex *e = nvn_hm_get(&by_key, &k);
     if (!e) {
         if (tex_alias < 0) {
-            tex_alias = cfg_bool("TOTK_TEX_ALIAS");
+            tex_alias = cfg_bool("AC_TEX_ALIAS");
             rt_log("vk: texture aliases: %s", tex_alias ? "a new image takes the live image's content" : "a new image starts empty");
         }
         if (!(e = create_tex(t, &k, tex_alias))) return NULL;
@@ -996,8 +996,8 @@ const VkTexImage *vk_texture_get(const tex_t *t) {
 }
 
 // Small render targets the CPU reads without NVN's invalidate (vk_texture_write_back_small); small_pending: one may be
-// dirty. wb_limit is the largest target (bytes) that goes back when the CPU waits for a fence: TOTK_WB_FENCE_LIMIT,
-// read once. wb_trace: TOTK_TRACE=gfx, read together with it.
+// dirty. wb_limit is the largest target (bytes) that goes back when the CPU waits for a fence: AC_WB_FENCE_LIMIT,
+// read once. wb_trace: AC_TRACE=gfx, read together with it.
 enum { WB_SMALL_DEFAULT = 64 << 10 };
 static int small_pending;
 static uint64_t wb_limit = WB_SMALL_DEFAULT;
@@ -1006,7 +1006,7 @@ static int wb_cfg_read;
 
 static void wb_cfg_init(void) {
     if (wb_cfg_read) return;
-    int v = cfg_int("TOTK_WB_FENCE_LIMIT");
+    int v = cfg_int("AC_WB_FENCE_LIMIT");
     wb_limit = v < 0 ? 0 : (uint64_t)v;
     wb_trace = (rt_trace & RT_TRACE_GFX) != 0;
     wb_cfg_read = 1;
@@ -1026,7 +1026,7 @@ void vk_texture_gpu_written(const tex_t *t) {
         if (e->pub.mirrored) {
             e->gpu_dirty = 1;
             storage_rewritten(e, 0, &e->gpu_gen);   // CPU writes up to here are older than this render
-            if (wb_exact < 0) wb_exact = cfg_bool("TOTK_WB_EXACT");
+            if (wb_exact < 0) wb_exact = cfg_bool("AC_WB_EXACT");
             if (wb_exact && !e->snap && e->t.L.size <= SNAP_MAX && fills_no_page(e) && !(e->snap = malloc(SNAP_MAX)))
                 rt_fatal("vk: out of memory for a texture's storage copy");
             if (e->snap) memcpy(e->snap, (const void *)(uintptr_t)e->pub.addr, e->t.L.size);
@@ -1439,7 +1439,7 @@ void vk_write_texels(const tex_t *t, const view_t *v, const NVNcopyRegion *r, co
 
 // ---------------------------------------------------------------- CPU reads of GPU-written storage
 // A mirrored texture the GPU rendered into holds its texels in its image only; its storage keeps what the CPU last put
-// there. The game may still read that storage with the CPU: TotK moves its generated grass maps between pools with
+// there. The game may still read that storage with the CPU: Astral Chain moves its generated grass maps between pools with
 // memcpy once the GPU is done, and the copy then carried zeros. Such a read writes the image back first.
 static void write_back(Tex *e) {
     const nvn_texdesc *d = &e->t.d;
@@ -1519,7 +1519,7 @@ uint64_t vk_texture_dirty_fence(uint64_t addr, uint64_t size) {
     return f;
 }
 
-// The image is the newest content only while nothing wrote the storage since the GPU render: TotK finalizes grass maps,
+// The image is the newest content only while nothing wrote the storage since the GPU render: Astral Chain finalizes grass maps,
 // reuses their storage for new data and memcpys that data on, and writing the old image back first handed the copy
 // a stale map or stale resource bytes (wrong textures in the distance). Every hit is checked before any is written
 // back, since a write-back is itself a CPU write to storage another hit may share; the hits then go back oldest render
@@ -1546,14 +1546,14 @@ void vk_texture_write_back(uint64_t addr, uint64_t size) {
     unlock();
 }
 
-// TotK's grass system renders a 128x128 RGBA8 map of cut and trampled grass into a CPU-cached pool every frame and its
+// Astral Chain's grass system renders a 128x128 RGBA8 map of cut and trampled grass into a CPU-cached pool every frame and its
 // CPU code reads the pool bytes without nvnMemoryPoolInvalidateMappedRange (cut reactions: blades, insects, the cut
 // itself). On the Switch the bytes are there once the frame's fence has passed. So when the
 // CPU waits for a fence, mirrored targets up to wb_limit bytes rendered by work up to that fence go back to their
 // storage, unless the CPU rewrote it since. Larger targets still go back on an invalidate, memcpy or ReadTexels.
 int vk_texture_small_dirty(void) { return __atomic_load_n(&small_pending, __ATOMIC_ACQUIRE); }
 
-// TOTK_TRACE=gfx: a dirty target the fence write-back leaves alone because it is over the limit (what a CPU read
+// AC_TRACE=gfx: a dirty target the fence write-back leaves alone because it is over the limit (what a CPU read
 // after the wait would miss), or sends back although it is over the default limit (what a raised limit changed). One
 // line per target address and outcome; the table is small and a full one stops logging.
 static void wb_note(const Tex *e, int skipped) {
@@ -1632,7 +1632,7 @@ static VkCompareOp compare_op(uint32_t f) {
     }
 }
 
-static struct { int init, mirror_clamp_edge, minmax, border_no_format; float aniso; } sf;   // aniso: TOTK_ANISO, 0 = the game's
+static struct { int init, mirror_clamp_edge, minmax, border_no_format; float aniso; } sf;   // aniso: AC_ANISO, 0 = the game's
 
 static void sampler_features(VkCtx *c) {
     if (sf.init) return;
@@ -1644,7 +1644,7 @@ static void sampler_features(VkCtx *c) {
     sf.mirror_clamp_edge = f12.samplerMirrorClampToEdge;
     sf.minmax = f12.samplerFilterMinmax;
     sf.border_no_format = c->has_custom_border_color && cbf.customBorderColors && cbf.customBorderColorWithoutFormat;
-    const char *an = cfg_value("TOTK_ANISO");
+    const char *an = cfg_value("AC_ANISO");
     sf.aniso = strcmp(an, "game") ? (float)atoi(an) : 0;
     rt_log("vk: anisotropic filtering: %s", sf.aniso > 1 ? an : "the game's");
     sf.init = 1;
@@ -1687,7 +1687,7 @@ static VkSampler make_sampler(VkCtx *c, const samp_par *d) {
          si.addressModeV == VK_SAMPLER_ADDRESS_MODE_REPEAT || si.addressModeV == VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT))
         bias += res_dlss_lod_bias();
     si.mipLodBias = fmaxf(-lim, fminf(lim, bias));
-    // TOTK_ANISO raises the level for filtered, mipmapped colour samplers that repeat on U and V: the surface textures,
+    // AC_ANISO raises the level for filtered, mipmapped colour samplers that repeat on U and V: the surface textures,
     // which tile, so ground and walls seen at a shallow angle stay sharp into the distance. Depth-compare (shadow)
     // samplers, nearest or unmipmapped ones (data maps, LUTs) and clamped ones keep the game's level: clamped samplers
     // read screen-sized buffers, whose coordinates can stretch steeply at an object's edge, where anisotropic taps reach
@@ -1707,7 +1707,7 @@ static VkSampler make_sampler(VkCtx *c, const samp_par *d) {
         si.compareEnable = VK_TRUE;
         si.compareOp = compare_op(d->cmp_func);
         // A depth-compare sampler set to nearest returns 0 or 1 per tap, and the game's shaders smooth shadow edges by
-        // a few taps spaced for its own shadow map texels. With TOTK_SHADOW_SCALE those taps cover a fraction of the
+        // a few taps spaced for its own shadow map texels. With AC_SHADOW_SCALE those taps cover a fraction of the
         // area and the edges turn hard and stepped; linear filtering makes every tap a 2x2 PCF instead.
         if (shadow_scale() > 1) si.magFilter = si.minFilter = VK_FILTER_LINEAR;
     }

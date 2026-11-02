@@ -1,8 +1,8 @@
-// TOTK_DUMP=<frame>: a frame dump for the Vulkan back end, which RenderDoc cannot capture (it hides
+// AC_DUMP=<frame>: a frame dump for the Vulkan back end, which RenderDoc cannot capture (it hides
 // VK_EXT_external_memory_host). Between presents frame-1 and frame, the replay's command buffers also copy, after each
 // render pass, its colour and depth targets and, after each dispatch, the storage images it writes into host buffers;
 // the completion thread turns them into 8-bit PNGs once the submission is done. 3D textures (LUTs, volumes) sampled or
-// written in the frame are copied once each, slices side by side. Files in TOTK_DUMP_DIR (default "dump"):
+// written in the frame are copied once each, slices side by side. Files in AC_DUMP_DIR (default "dump"):
 //   pass_<seq>_t<i>_<w>x<h>_<vkformat>_<name>.png   colour target i (td: depth; img<slot>: storage image; lut<id>: 3D;
 //                                                    a BC target drawn through a block view: its blocks as that view)
 //   ..._tm.png                                       float formats: x/(1+x) of the same image (the plain one clamps)
@@ -11,17 +11,17 @@
 //   images.txt   per image: channel min/max, distinct texel values over the image and over its top quarter
 // Sampled 8-bit 2D textures up to TEX2D_CAP texels are copied once each as pass_<seq>_tex<id>_... at the end of the pass
 // that samples them; texture lines carry the storage address, mirror state, upload count and the image's and slot's
-// swizzle. Copies and texture clears are logged as "copy/clear after pass N". TOTK_DUMP_LOG=<from> also logs the
-// frames from..frame-1 to passes.txt, with PNGs only of targets up to 64K texels. TOTK_DUMP_BUF=<addr>:<size>[:...]
+// swizzle. Copies and texture clears are logged as "copy/clear after pass N". AC_DUMP_LOG=<from> also logs the
+// frames from..frame-1 to passes.txt, with PNGs only of targets up to 64K texels. AC_DUMP_BUF=<addr>:<size>[:...]
 // snapshots one GPU buffer range after every logged pass (buf_<pass>.bin and bufs.txt, see buf_snap).
 // PNGs are opaque (alpha dropped). Integer formats are scaled by the image maximum, depth by its min..max range, SNORM
 // as x/2+1/2, UNORM and sRGB bytes written as stored. Caps: MAX_PASSES passes copied, PNG_CAP bytes of PNGs.
-// TOTK_DUMP_TEX=<id>|<w>x<h>[,...]: those texture slots, or 2D textures of that size, are copied where first sampled,
+// AC_DUMP_TEX=<id>|<w>x<h>[,...]: those texture slots, or 2D textures of that size, are copied where first sampled,
 // whatever their format.
-// TOTK_DUMP_UBO=<n>: each listed pipeline also prints the first n vec4 of its user uniform blocks (c3 and up; 1 means 16,
+// AC_DUMP_UBO=<n>: each listed pipeline also prints the first n vec4 of its user uniform blocks (c3 and up; 1 means 16,
 // the cap is 4096), read from guest memory when the entry is listed. A block the submission rewrites with UpdateUniformBuffer shows its value from
 // before the submission (vk_exec_draw.c upd_note).
-// TOTK_DUMP_SKIP_RUNS=1: a render pass with the same targets as the render pass before it is logged but not copied
+// AC_DUMP_SKIP_RUNS=1: a render pass with the same targets as the render pass before it is logged but not copied
 // (the terrain decals draw one pass each into the G-buffer and would use up both caps).
 #include <math.h>
 #include <stdarg.h>
@@ -44,12 +44,12 @@
 #define TEX2D_CAP (1u << 20)        // texels of a sampled 2D texture that is dumped
 
 int vk_dump_armed;
-static uint64_t dump_frame, log_from;   // log_from: TOTK_DUMP_LOG, first frame logged to passes.txt without images
+static uint64_t dump_frame, log_from;   // log_from: AC_DUMP_LOG, first frame logged to passes.txt without images
 static char dir[400];
 static FILE *passes_f, *images_f;
 static int seq, finished, copied;      // copied: passes and dispatches of the dump frame whose images were copied
-static int skip_runs, dump_ubo;        // TOTK_DUMP_SKIP_RUNS, TOTK_DUMP_UBO (vec4 per block, 0 for none)
-static uint32_t want_tex[16][2];       // TOTK_DUMP_TEX: slot id and 0, or width and height
+static int skip_runs, dump_ubo;        // AC_DUMP_SKIP_RUNS, AC_DUMP_UBO (vec4 per block, 0 for none)
+static uint32_t want_tex[16][2];       // AC_DUMP_TEX: slot id and 0, or width and height
 static int nwant_tex;
 static uint64_t last_targets;          // targets_sig of the last render pass; 0 after a dispatch
 static const char *pass_skip;          // why the current pass copies nothing, or NULL
@@ -340,7 +340,7 @@ static const char *copy_out(VkExec *ex, VkImage image, VkFormat vf, VkImageAspec
     return copy_region(ex, image, vf, aspect, level, layer, 0, (VkExtent3D){w, h, d}, w, h, d, name);
 }
 
-// ---- TOTK_DUMP_BUF=<addr>:<size>[:<off>:<stride>:<w>:<h>]: after every pass and dispatch that is logged, the GPU
+// ---- AC_DUMP_BUF=<addr>:<size>[:<off>:<stride>:<w>:<h>]: after every pass and dispatch that is logged, the GPU
 // buffer range is copied to a host buffer; when it differs from the previous copy it goes to buf_<pass>.bin, and
 // bufs.txt gets the changed bytes' extent plus, with the grid arguments, one map per dword of the w x h records of
 // `stride` bytes at `off` (each record a letter: its value's index in the table under the map).
@@ -863,24 +863,24 @@ out:
 static void make_dirs(char *path) { plat_file_mkdir_p(path); }
 
 void vk_dump_init(void) {
-    const char *e = cfg_get("TOTK_DUMP");
+    const char *e = cfg_get("AC_DUMP");
     if (!e || !*e || !(dump_frame = strtoull(e, NULL, 10))) return;
-    const char *lf = cfg_get("TOTK_DUMP_LOG");
+    const char *lf = cfg_get("AC_DUMP_LOG");
     if (lf && *lf) log_from = strtoull(lf, NULL, 10);
-    const char *sr = cfg_get("TOTK_DUMP_SKIP_RUNS");
+    const char *sr = cfg_get("AC_DUMP_SKIP_RUNS");
     skip_runs = sr && *sr && *sr != '0';
-    const char *du = cfg_get("TOTK_DUMP_UBO");
+    const char *du = cfg_get("AC_DUMP_UBO");
     dump_ubo = du && *du ? atoi(du) : 0;
     if (dump_ubo == 1) dump_ubo = 16;
     if (dump_ubo > 4096) dump_ubo = 4096;
     if (dump_ubo < 0) dump_ubo = 0;
-    const char *wt = cfg_get("TOTK_DUMP_TEX");
+    const char *wt = cfg_get("AC_DUMP_TEX");
     for (char *q = (char *)wt; q && *q && nwant_tex < 16; q += *q == ',') {
         uint32_t *w = want_tex[nwant_tex++];
         w[0] = (uint32_t)strtoul(q, &q, 10);
         w[1] = *q == 'x' ? (uint32_t)strtoul(q + 1, &q, 10) : 0;
     }
-    const char *d = cfg_get("TOTK_DUMP_DIR");
+    const char *d = cfg_get("AC_DUMP_DIR");
     snprintf(dir, sizeof dir, "%s", d && *d ? d : "dump");
     make_dirs(dir);
     char path[600];
@@ -889,7 +889,7 @@ void vk_dump_init(void) {
     snprintf(path, sizeof path, "%s/images.txt", dir);
     images_f = fopen(path, "w");
     if (!passes_f || !images_f) rt_fatal("vk_dump: cannot write to %s", dir);
-    const char *bf = cfg_get("TOTK_DUMP_BUF");
+    const char *bf = cfg_get("AC_DUMP_BUF");
     if (bf && *bf) {
         char *q;
         bd_addr = strtoull(bf, &q, 0);

@@ -2,13 +2,9 @@
 // (MIT, Copyright (c) 2026 MacNativeGames contributors) and LAS Recomp runtime/main.c (lines 16-35, 141-159) @
 // da35b83 (MIT, Copyright (c) 2026 Peiikai).
 // The boot driver: the guest main thread runs the game's own nn::init::Start
-// with three host callbacks, the second of which runs DT_INIT of main, subsdk0 and sdk; Start then calls nnMain.
-// --boot checks two checkpoints on the way and ends at the first nvnBootstrapLoader call, at the return address of
-// each in main (1.1.0, 1.2.1, 1.4.3):
-//   SetFocusHandlingMode   main+0xeb8c14 (1.2.1: +0xe7a954, 1.4.3: +0xbdb48c) in nnMain, every module's constructor
-//                          flag reads 2
-//   nvnBootstrapLoader     main+0xebcdec (1.2.1: +0xe7eb2c, 1.4.3: +0xbe0360) in the graphics bring-up; logs the
-//                          run statistics, exits 0
+// with three host callbacks, the second of which runs DT_INIT of every loaded module (main and sdk for
+// Astral Chain); Start then calls nnMain.
+// --boot ends at the first nvnBootstrapLoader call; the return address is logged, not checked against a table.
 // With --seconds S the run continues past that call; rt_frame_presented ends it once the world clock passed S.
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,28 +21,10 @@
 #include "platform/platform.h"
 
 #define SYM_INIT_START "_ZN2nn4init5StartEmmPFvvES2_S2_"
-// main: return addresses of nnMain's SetFocusHandlingMode call (1.1.0 and 1.2.1 from this port's analysis of main;
-// 1.4.3 from MacNativeGames' scripts/verify_boot.py) and of the first nvnBootstrapLoader call, per game version.
-#define CHECKPOINT_RET (RT_V143 ? 0xbdb48cull : RT_V110 ? 0xeb8c14ull : 0xe7a954ull)
-#define NVN_RET (RT_V143 ? 0xbe0360ull : RT_V110 ? 0xebcdecull : 0xe7eb2cull)
 #define CTOR_DONE 2                      // a module's constructor flag after its DT_INIT ran the init_array
 
-// The init_array sizes (1.1.0 and 1.2.1: counted in the modules; 1.4.3: DT_INIT_ARRAYSZ); MacNativeGames' boot check
-// expects the same. The three tables carry the same rows, so cb_module_inits walks them by the size of one.
-typedef struct { const char *name; uint64_t entries; } InitCount;
-static const InitCount inits_110[] = {{"main", 10668}, {"subsdk0", 45}, {"sdk", 116}};
-static const InitCount inits_121[] = {{"main", 10673}, {"subsdk0", 45}, {"sdk", 116}};
-static const InitCount inits_143[] = {{"main", 10717}, {"subsdk0", 45}, {"sdk", 83}};
-#define expected_inits (RT_V143 ? inits_143 : RT_V110 ? inits_110 : inits_121)
-
-static volatile int32_t inits_done, checkpoint_seen;
+static volatile int32_t inits_done;
 uint64_t rt_guest_start_ns;
-
-static const RtLoaded *module_named(const char *name) {
-    for (int i = 0; i < ldr_count(); i++)
-        if (!strcmp(ldr_module(i)->name, name)) return ldr_module(i);
-    rt_fatal("boot: module %s is not loaded", name);
-}
 
 static uint32_t ctor_state(const RtLoaded *m) { return LD32(m->ctor_flag); }
 
@@ -74,11 +52,11 @@ static void cb_loader_ready(Cpu *c) {
 }
 
 // DT_INIT registers the module with musl (__nnmusl_init_dso) and runs its init_array; the constructor flag reads 2
-// afterwards (MacNativeGames loader.c:458-462).
+// afterwards (MacNativeGames loader.c:458-462). The load order (main, sdk) is the layout order.
 static void cb_module_inits(Cpu *c) {
     if (plat_cas32(&inits_done, 0, 0)) rt_fatal("boot: module constructors requested twice");
-    for (unsigned k = 0; k < sizeof inits_121 / sizeof *inits_121; k++) {
-        const RtLoaded *m = module_named(expected_inits[k].name);
+    for (int i = 0; i < ldr_count(); i++) {
+        const RtLoaded *m = ldr_module(i);
         uint64_t entries = m->init_array_size / 8;
         if (!m->init) rt_fatal("boot: %s has no DT_INIT", m->name);
         rt_log("boot: ENTER %s DT_INIT (%llu init_array entries)", m->name, (unsigned long long)entries);
@@ -86,9 +64,6 @@ static void cb_module_inits(Cpu *c) {
         uint32_t state = ctor_state(m);
         rt_logf("boot: DT_INIT %s state=%u (%llu)\n", m->name, state, (unsigned long long)entries);
         if (state != CTOR_DONE) rt_fatal("boot: %s DT_INIT left its constructor flag at %u, not 2", m->name, state);
-        if (entries != expected_inits[k].entries)
-            rt_fatal("boot: %s has %llu init_array entries, this game version has %llu", m->name, (unsigned long long)entries,
-                     (unsigned long long)expected_inits[k].entries);
     }
     plat_xchg32(&inits_done, 1);
 }
@@ -107,31 +82,10 @@ static void stats_line(void) {
 
 void rt_boot_event(const char *what, Cpu *c, const char *detail) {
     char at[128];
-    const RtLoaded *main_mod = module_named("main");
-    uint64_t ret = c->x[30];
     caller(c, at, sizeof at);
-    if (!strcmp(what, "checkpoint")) {
-        if (ret != main_mod->base + CHECKPOINT_RET)
-            rt_fatal("boot: checkpoint %s reached from %s, expected main+%#llx", detail, at,
-                     (unsigned long long)CHECKPOINT_RET);
-        if (!plat_cas32(&inits_done, 0, 0)) rt_fatal("boot: checkpoint %s before DT_INIT", detail);
-        for (int i = 0; i < ldr_count(); i++)
-            if (ctor_state(ldr_module(i)) != CTOR_DONE)
-                rt_fatal("boot: checkpoint %s: %s constructor flag reads %u", detail, ldr_module(i)->name,
-                         ctor_state(ldr_module(i)));
-        plat_xchg32(&checkpoint_seen, 1);
-        rt_logf("boot: checkpoint %s from main+%#llx\n", detail, (unsigned long long)(ret - main_mod->base));
-        return;
-    }
     if (!strcmp(what, "nvn")) {
-        if (ret != main_mod->base + NVN_RET)
-            rt_fatal("boot: first NVN call %s(\"%s\") from %s, expected main+%#llx", "nvnBootstrapLoader", detail, at,
-                     (unsigned long long)NVN_RET);
-        if (!plat_cas32(&checkpoint_seen, 0, 0))
-            rt_fatal("boot: first NVN call before the SetFocusHandlingMode checkpoint");
-        rt_logf("boot: first NVN call nvnBootstrapLoader(\"%s\") from main+%#llx\n", detail,
-               (unsigned long long)(ret - main_mod->base));
-        if (rt_config()->seconds) return;   // --seconds: the run goes on into the world
+        rt_logf("boot: first NVN call nvnBootstrapLoader(\"%s\") from %s\n", detail, at);
+        if (rt_config()->seconds) return;   // --seconds: the run goes on into the game
         if (rt_trace & RT_TRACE_HOSTCALL) hostfn_report();
         stats_line();
         fflush(stdout);
@@ -143,7 +97,7 @@ void rt_boot_event(const char *what, Cpu *c, const char *detail) {
 
 // ---- --seconds S
 // A PNG with stored (uncompressed) deflate blocks: no compression library, and the shot is only read by tools.
-// rt_write_png (declared in vk.h) is shared with the TOTK_DUMP frame dump (vk_dump.c).
+// rt_write_png (declared in vk.h) is shared with the AC_DUMP frame dump (vk_dump.c).
 static uint32_t crc32_update(uint32_t crc, const uint8_t *p, size_t n) {
     static uint32_t table[256];
     if (!table[1])
@@ -228,9 +182,9 @@ static void save_shot(const tex_t *t, const char *path) {
     rt_logf("boot: shot %s (%ux%u)\n", path, w, h);
 }
 
-// TOTK_SHOTS=lo-hi:step [TOTK_SHOTS_DIR=dir]: every step-th present in [lo, hi] saved as <dir>/f<n>.png (n the
-// present), box-filtered to 480x270; TOTK_SHOTS=w<lo>-<hi>:<step> takes them by world-clock seconds instead, the first
-// present at or after each step (full size with TOTK_SHOTS_FULL=1), for finding short glitches. Pipeline builds stay asynchronous, so the
+// AC_SHOTS=lo-hi:step [AC_SHOTS_DIR=dir]: every step-th present in [lo, hi] saved as <dir>/f<n>.png (n the
+// present), box-filtered to 480x270; AC_SHOTS=w<lo>-<hi>:<step> takes them by world-clock seconds instead, the first
+// present at or after each step (full size with AC_SHOTS_FULL=1), for finding short glitches. Pipeline builds stay asynchronous, so the
 // pictures show what a player sees.
 static void series_shot(const tex_t *t, uint64_t n) {
     static int parsed;
@@ -238,14 +192,14 @@ static void series_shot(const tex_t *t, uint64_t n) {
     static const char *dir;
     static int full, world;
     if (!parsed) {
-        full = cfg_get("TOTK_SHOTS_FULL") != NULL;
-        const char *e = cfg_get("TOTK_SHOTS");
+        full = cfg_get("AC_SHOTS_FULL") != NULL;
+        const char *e = cfg_get("AC_SHOTS");
         double wl, wh, ws;
         if (e && e[0] == 'w' && sscanf(e + 1, "%lf-%lf:%lf", &wl, &wh, &ws) == 3 && ws > 0)   // world-clock seconds
             world = 1, lo = (unsigned long long)(wl * 1e6), hi = (unsigned long long)(wh * 1e6),
             step = (unsigned long long)(ws * 1e6), next = lo;
         else if (!e || sscanf(e, "%llu-%llu:%llu", &lo, &hi, &step) != 3 || !step) hi = 0;
-        dir = cfg_get("TOTK_SHOTS_DIR") ? cfg_get("TOTK_SHOTS_DIR") : ".";
+        dir = cfg_get("AC_SHOTS_DIR") ? cfg_get("AC_SHOTS_DIR") : ".";
         if (hi) plat_file_mkdir_p(dir);
         parsed = 1;
     }
@@ -261,7 +215,7 @@ static void series_shot(const tex_t *t, uint64_t n) {
     if (!bgra && fmt != NVN_FORMAT_RGBA8 && fmt != NVN_FORMAT_RGBA8_SRGB) return;
     uint32_t w = t->d.width, h = t->d.height, ow = full ? w : 480, oh = full ? h : 270;
     uint8_t *px = malloc(4ull * w * h), *out = malloc(4ull * ow * oh);
-    if (!px || !out) rt_fatal("boot: out of memory for a TOTK_SHOTS frame");
+    if (!px || !out) rt_fatal("boot: out of memory for a AC_SHOTS frame");
     view_t view;
     memset(&view, 0, sizeof view);
     NVNcopyRegion r = {.width = (int)w, .height = (int)h, .depth = 1};
@@ -329,7 +283,7 @@ static void guest_main(Cpu *c) {
 static void prewarm_main(void *arg) {
     (void)arg;
     vk_pipeline_prewarm();
-    const char *prep = cfg_get("TOTK_TEST_PREPARE_SHADERS");   // Task 2.3 test hook; Task 2.6 builds the preparation
+    const char *prep = cfg_get("AC_TEST_PREPARE_SHADERS");   // Task 2.3 test hook; Task 2.6 builds the preparation
     if (prep && !strcmp(prep, "1")) {
         int cpus = (int)plat_cpu_usable();
         gfx_shader_prepare_recorded(cpus, cpus / 2 > 16 ? 16 : cpus / 2 < 1 ? 1 : cpus / 2);

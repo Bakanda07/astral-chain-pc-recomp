@@ -1,9 +1,9 @@
 """The mods folder served as RomFS overlays (runtime/romfs.c, runtime/mods.c): load order, added files, case, Unicode.
 
-    .venv\\Scripts\\python tests\\mods_romfs_check.py --exe build\\v121-<tag>\\totk.exe --version v121
+    .venv\\Scripts\\python tests\\mods_romfs_check.py --exe build\\v121-<tag>\\astralchain.exe --version v121
 
 Builds a mods folder in a temp directory with files of its own bytes at real RomFS paths (from
-build/extracted/<version>/romfs/index.json), runs `totk.exe --probe-fs` on it and reads the `mods:` lines of the log.
+build/extracted/<version>/romfs/index.json), runs `astralchain.exe --probe-fs` on it and reads the `mods:` lines of the log.
 --probe-fs compares the bytes it reads through the RomFS with every overlay file, so a wrong winner fails it too.
 A second folder checks the merged resource size table the start writes to the profile (runtime/romfs.c
 restbl_overlay): a grown file's entry, an added file's, a shipped table's and another version's table's.
@@ -45,7 +45,7 @@ def put(root, mod, rel, data, part='romfs', times=64):
 
 def run(exe, mods, order, disabled=''):
     """--probe-fs with a profile of its own beside mods (the merged resource size table is written there)."""
-    env = dict(os.environ, TOTK_MODS_DIR=str(mods), TOTK_MODS_ORDER=order, TOTK_MODS_DISABLED=disabled)
+    env = dict(os.environ, AC_MODS_DIR=str(mods), AC_MODS_ORDER=order, AC_MODS_DISABLED=disabled)
     profile = Path(mods).parent / 'profile'
     r = subprocess.run([str(exe), '--profile', str(profile), '--probe-fs'], env=env, capture_output=True, timeout=600)
     log = (r.stdout + r.stderr).decode('utf-8', 'replace')

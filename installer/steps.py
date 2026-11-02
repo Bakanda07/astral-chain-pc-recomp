@@ -6,16 +6,16 @@ recomp/gen.py, tools/build_game.py, tools/make_romfs_patches.py and tools/prepar
 <temp>/logs/<step>-<tool>.log and is read for progress. No Win32 call here: the host check is a small C program built
 with the bundled clang (hostcheck.c).
 
-Install folder: exefs/, romfs/ (romfs.bin, index.json), profile/, shared-fonts/ (Chinese and Korean text), totk.exe
-and its DLLs, romfs-index.bin, romfs-patches/, romfs-patches-xbox/, romfs-patches-xbox-label/, totk_xlate.exe, the
-shader state of totk.exe --prepare-shaders, totk.ini, totk-install.json.
+Install folder: exefs/, romfs/ (romfs.bin, index.json), profile/, shared-fonts/ (Chinese and Korean text), astralchain.exe
+and its DLLs, romfs-index.bin, romfs-patches/, romfs-patches-xbox/, romfs-patches-xbox-label/, ac_xlate.exe, the
+shader state of astralchain.exe --prepare-shaders, astralchain.ini, totk-install.json.
 Temp folder (<temp>/<dest name>-<hash>): check/ (ExeFS of both inputs, the host check), gen/ (C), build/ (objects),
 logs/. The cleanup keeps gen/, build/ and logs/: the next run lifts into the same gen/, where recomp/gen.py rewrites
 only the chunks whose C changed, and Ninja in build/ recompiles only those. A change of the mods' code cheats then
 costs the lift (about a minute) and the chunks it touches, not a full compile.
 
 Install folder build-cache/: cheats.status (tools/cheats.py), exefs.status (tools/exefs_patches.py) and rebuild.txt, the command that starts this setup in
-its rebuild mode on the install folder (installer/gui.py --rebuild), one argument per line; totk.exe runs it at start
+its rebuild mode on the install folder (installer/gui.py --rebuild), one argument per line; astralchain.exe runs it at start
 when an enabled mod has code cheats the build lacks (runtime/cheats.c).
 """
 import hashlib
@@ -41,7 +41,7 @@ from extract_exefs import (common_tickets, container_entries, load_keys, nca_ctr
                            program_nca)
 
 GiB = 1 << 30
-DEST_EXTRA = 4 * GiB      # beside the RomFS: shader and pipeline caches (about 2 GB), exefs, totk.exe, seed files
+DEST_EXTRA = 4 * GiB      # beside the RomFS: shader and pipeline caches (about 2 GB), exefs, astralchain.exe, seed files
 TEMP_NEED = 3 * GiB       # generated C (about 0.9 GB) and objects
 HOSTCHECK = Path(__file__).resolve().parent / 'hostcheck.c'
 STAMP = '.install-key'
@@ -224,7 +224,7 @@ def size_of(paths):
     return sum(p.stat().st_size for p in paths if p.is_file())
 
 
-# The Switch system shared fonts (runtime/ov_system.c): TotK falls back to them for Chinese, Korean and Traditional
+# The Switch system shared fonts (runtime/ov_system.c): Astral Chain falls back to them for Chinese, Korean and Traditional
 # Chinese text. tools/vendor/macnativegames/extract_shared_fonts.py writes these names.
 SHARED_FONTS = 'shared-fonts'
 SHARED_FONT_FILES = ('0-standard.bfttf', '1-chinese-simplified.bfttf', '2-chinese-simplified-extension.bfttf',
@@ -831,7 +831,7 @@ NINJA_LINE = re.compile(r'^\[(\d+)/(\d+)\] ')
 
 
 def runtime_key(ctx):
-    """Fingerprint of what totk.exe is built from besides the lifted code: the runtime, the toolchain and the build
+    """Fingerprint of what astralchain.exe is built from besides the lifted code: the runtime, the toolchain and the build
     tools. Shader preparation depends on these, not on the code cheats a lift adds."""
     layout, cpu = ctx.layout, getattr(ctx, 'cpu', 'v3')
     clang = subprocess.run([str(layout.clang), '--version'], capture_output=True, text=True).stdout
@@ -929,7 +929,7 @@ class Prepare(Step):
             # Another translator: its cache keys differ, so the old translations would only take space.
             for name in ('shader-cache', 'shader-prepared.bin'):
                 remove(dest / name)
-        # totk.exe starts totk_xlate.exe as a child while it prepares shaders; a preparation that was stopped from
+        # astralchain.exe starts ac_xlate.exe as a child while it prepares shaders; a preparation that was stopped from
         # outside leaves that child holding this file, and Windows then refuses to replace it (issue #174).
         try:
             replace_file(layout.xlate, xlate)
@@ -1006,7 +1006,7 @@ class Prepare(Step):
         if skipped[0]:
             rep.warning('warn.shaders_skipped', count=skipped[0], log=str(log))
 
-        # One shader-cache.pack instead of four files per shader (~117,000): totk.exe reads the pack first.
+        # One shader-cache.pack instead of four files per shader (~117,000): astralchain.exe reads the pack first.
         rep.progress('prepare', 'pack', force=True)
         code, log = run_tool(ctx, 'prepare', layout.tools / 'pack_shader_cache.py', [dest / 'shader-cache'])
         if code:
@@ -1041,7 +1041,7 @@ class Cleanup(Step):
 
 # Puts the release folder (the argument after -c) on sys.path and runs installer.gui with the rest. `-m installer.gui`
 # finds the package only through the release Python's ._pth: the Linux release's Python and the dev-mode embeddable one
-# lack that entry, and totk.exe starts the command in the install folder.
+# lack that entry, and astralchain.exe starts the command in the install folder.
 REBUILD_BOOT = ('import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); '
                 "runpy.run_module('installer.gui', run_name='__main__', alter_sys=True)")
 
@@ -1058,7 +1058,7 @@ def rebuild_command(ctx):
 
 
 def write_rebuild_command(ctx):
-    """build-cache/rebuild.txt in the install folder: rebuild_command, one argument per line, for totk.exe."""
+    """build-cache/rebuild.txt in the install folder: rebuild_command, one argument per line, for astralchain.exe."""
     cache = ctx.dest / 'build-cache'
     cache.mkdir(exist_ok=True)
     tmp = cache / 'rebuild.txt.tmp'

@@ -1,4 +1,4 @@
-"""Compile the generated C for one game version and link it with the runtime into build/<version>/totk.exe.
+"""Compile the generated C for one game version and link it with the runtime into build/<version>/astralchain.exe.
 
 Writes build/<version>/build.ninja and runs MSYS2 UCRT64 Ninja on it. Ninja keeps the build incremental: a chunk is
 recompiled only when it, a header it includes or its flags change.
@@ -8,7 +8,7 @@ runtime's *_sdl.* and platform/linux.c take the place of its *_win.*, platform/w
 the system's (Vulkan, SDL3, Opus, libvpx, zstd; libstdc++ static), and the executable finds a libSDL3.so.0 beside it
 first (rpath $ORIGIN). docs/building.md lists the packages.
 
-    .venv\\Scripts\\python tools\\build_game.py                     # generated/v121 -> build/v121/totk.exe
+    .venv\\Scripts\\python tools\\build_game.py                     # generated/v121 -> build/v121/astralchain.exe
     .venv\\Scripts\\python tools\\build_game.py --modules subsdk0   # one module (links if it has no calls into others)
     .venv\\Scripts\\python tools\\build_game.py --jobs 8
     .venv\\Scripts\\python tools\\build_game.py --out build/v121-t2   # a separate build directory
@@ -17,10 +17,10 @@ first (rpath $ORIGIN). docs/building.md lists the packages.
 
 Every runtime/*.c is compiled. build/<version>/modules.c carries the layout, the linked function tables, the
 expected SHA-256 of each ExeFS file (tools/data/expected-<display version>.json) and the default game paths
-(--exefs, --romfs, --profile), which totk.exe uses unless its own command line names others. --exefs and --romfs
+(--exefs, --romfs, --profile), which astralchain.exe uses unless its own command line names others. --exefs and --romfs
 default to extracted/<version> in the work folder: the [work] dir of config.local.toml, where tools/extract.py writes
 them, else build/. tools/romfs_index.py writes build/<version>/romfs-index.bin and romfs_config.h from the RomFS
-directory's index.json (runtime/romfs.c reads the index next to totk.exe). Without that index.json the build stops:
+directory's index.json (runtime/romfs.c reads the index next to astralchain.exe). Without that index.json the build stops:
 the exe would stop at start. --no-romfs builds it anyway.
 
 Private builds reuse the main build's objects. When --out differs from build/<version>, the main build's generated
@@ -49,7 +49,7 @@ from MSYS2. The libraries and headers MSYS2 supplies (Vulkan, SDL3, Opus, libvpx
 (default toolchain/deps-mingw: include/, lib/ with the import libraries and libvpx.a, bin/ with the DLLs), and the C++
 runtime is libc++ from llvm-mingw. Such a build never reuses another build's generated objects.
 
-Split build. --make-runtime-lib compiles only runtime/ into <out>/libtotkrt.a (what CI prebuilds). --runtime-lib PATH
+Split build. --make-runtime-lib compiles only runtime/ into <out>/libacrt.a (what CI prebuilds). --runtime-lib PATH
 then compiles only the generated C and the install-time files (modules.c and INSTALL_SIDE, which bake the player's
 game hashes and version in) and links them with that library. The library holds no game-derived data.
 
@@ -80,7 +80,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # them. MAIN_ROOT is where they land, so resolved paths still print and compare relative to a root.
 MAIN_ROOT = (ROOT / 'build').resolve().parent
 UCRT = Path(r'C:\msys64\ucrt64\bin')
-EXE = 'totk.exe' if WIN else 'totk'
+EXE = 'astralchain.exe' if WIN else 'totk'
 
 
 def on_path(name):
@@ -157,9 +157,9 @@ DEFAULT_DEPS = ROOT / 'toolchain' / 'deps-mingw'
 # the patches.h of the player's game version (its patch page is the page after that version's main; ov_zstd.c's host
 # functions sit on it).
 INSTALL_SIDE = {'romfs.c', 'patches.c', 'ov_zstd.c'}
-LIB_NAME = 'libtotkrt.a'
+LIB_NAME = 'libacrt.a'
 AR = UCRT / 'llvm-ar.exe' if WIN else on_path('llvm-ar')
-WINDRES = UCRT / 'windres.exe'   # runtime/totk.rc: the manifest of totk.exe
+WINDRES = UCRT / 'windres.exe'   # runtime/totk.rc: the manifest of astralchain.exe
 TOOLCHAIN_BIN = None   # llvm-mingw bin directory, set by main() for --toolchain
 DEPS = None            # the deps directory of an llvm-mingw build
 # tools/data/expected-<display version>.json for each build version name.
@@ -238,7 +238,7 @@ def write_if_changed(path, text):
 
 
 def copy_romfs_patches(version, out):
-    """totk.exe loads romfs-patches beside romfs-index.bin (runtime/romfs.c overlay_init). tools/make_romfs_patches.py
+    """astralchain.exe loads romfs-patches beside romfs-index.bin (runtime/romfs.c overlay_init). tools/make_romfs_patches.py
     writes them into build/<version> only, so a build in another directory ran without the 60 fps overlay (the quick
     menus' captured background turned black). Copies them when their manifest differs; romfs-patches-xbox and
     romfs-patches-xbox-label (the same with Xbox button prompts, make_romfs_patches.py --prompts) the same way when they
@@ -403,7 +403,7 @@ def ninja_file(gen, out, mods, pool_depth, skip=(), prebuilt=False, runtime_lib=
         o = runtime_object(out, src)
         if src.suffix == '.rc':   # windres writes no depfile: the files totk.rc embeds are listed by hand
             lines.append(f'build {ninja_path(o)}: rc {ninja_path(src)} | {ninja_path(RUNTIME / "totk.manifest")} '
-                         f'{ninja_path(RUNTIME / "totk.ico")}')
+                         f'{ninja_path(RUNTIME / "astralchain.ico")}')
         else:
             lines.append(f'build {ninja_path(o)}: cc_rt {ninja_path(src)}')
         rt.append(o)
@@ -418,7 +418,7 @@ def ninja_file(gen, out, mods, pool_depth, skip=(), prebuilt=False, runtime_lib=
     rule = 'link'
     if runtime_lib:
         # Whole archive: the runtime's weak defaults (nvn_procs.c, nvn_api_core.c, vk_sync.c) would otherwise satisfy
-        # references before the linker pulls the members with the strong definitions, which would stay out of totk.exe.
+        # references before the linker pulls the members with the strong definitions, which would stay out of astralchain.exe.
         rule = 'link_lib'
         lines += ['', 'rule link_lib',
                   f'  command = $cc $ldflags @$out.rsp -Wl,--whole-archive {cmd_path(runtime_lib)} -Wl,--no-whole-archive $libs -o $out',
@@ -736,13 +736,13 @@ def main():
                     help='comma-separated runtime/*.c names to leave out (the link needs another definition of what they '
                          'define)')
     ap.add_argument('--exefs', type=Path,
-                    help="totk.exe's default ExeFS directory (default <work dir>/extracted/<version>/exefs, the work "
+                    help="astralchain.exe's default ExeFS directory (default <work dir>/extracted/<version>/exefs, the work "
                          "dir being the [work] dir of config.local.toml, else build)")
-    ap.add_argument('--romfs', type=Path, help="totk.exe's default RomFS directory with romfs.bin and index.json "
+    ap.add_argument('--romfs', type=Path, help="astralchain.exe's default RomFS directory with romfs.bin and index.json "
                                                '(default <work dir>/extracted/<version>/romfs)')
     ap.add_argument('--no-romfs', action='store_true',
                     help='build even when the RomFS directory has no index.json (the exe then stops at start)')
-    ap.add_argument('--profile', type=Path, help="totk.exe's default profile directory (default build/profile for v121, "
+    ap.add_argument('--profile', type=Path, help="astralchain.exe's default profile directory (default build/profile for v121, "
                                                  "build/profile-<version> otherwise, so trying another version leaves "
                                                  "the main profile alone; saves load on 1.2.1 and 1.4.3 alike)")
     ap.add_argument('--toolchain', type=Path, help='llvm-mingw directory (with bin/clang.exe) to build with instead of '
@@ -755,7 +755,7 @@ def main():
     ap.add_argument('--deps', type=Path, help=f'with --toolchain: include/, lib/ and bin/ of Vulkan, SDL3, Opus, libvpx '
                                               f'and VMA (default {DEFAULT_DEPS.relative_to(ROOT).as_posix()})')
     ap.add_argument('--make-runtime-lib', action='store_true',
-                    help=f'build only <out>/{LIB_NAME} from runtime/ (no generated C, no totk.exe)')
+                    help=f'build only <out>/{LIB_NAME} from runtime/ (no generated C, no astralchain.exe)')
     ap.add_argument('--runtime-lib', type=Path, help=f'link against this {LIB_NAME} instead of compiling runtime/ '
                                                     f'({", ".join(sorted(INSTALL_SIDE))} and modules.c still compile)')
     ap.add_argument('--expected', type=Path,
@@ -893,13 +893,13 @@ def main():
     code, dt, peak_one, _ = run_measured(base + [flag_path(exe)], env)
     print(f'link: {dt:.1f} s, peak {mib(peak_one)}')
     if code:
-        print(f'build_game: link failed, {flag_path(exe)} is the old one (a running totk.exe from this dir locks it)',
+        print(f'build_game: link failed, {flag_path(exe)} is the old one (a running astralchain.exe from this dir locks it)',
               file=sys.stderr)
         sys.exit(code)
     if args.make_runtime_lib:
         print(f'{below_root(exe)}: {mib(exe.stat().st_size)}')
         return
-    for dll in dlls:   # dynamic SDL3 (zlib) and its libiconv (LGPL, unmodified DLL), found next to totk.exe
+    for dll in dlls:   # dynamic SDL3 (zlib) and its libiconv (LGPL, unmodified DLL), found next to astralchain.exe
         shutil.copy2(dll, exe.parent / dll.name)
     sections, image = pe_sections(exe) if WIN else elf_sections(exe)
     print(f'{below_root(exe)}: file {mib(exe.stat().st_size)}, '

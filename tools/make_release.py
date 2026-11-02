@@ -1,7 +1,7 @@
 """Assemble the release folder of docs/installer.md ("Release layout") from pinned downloads.
 
-    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/TotK-Setup [--zip build/release/TotK-Setup.zip]
-    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/TotK-Setup --prove
+    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Astral Chain-Setup [--zip build/release/Astral Chain-Setup.zip]
+    .venv-py314\\Scripts\\python tools\\make_release.py --out build/release/Astral Chain-Setup --prove
 
 Needs Python 3.14 (tarfile reads the MSYS2 .zst packages), uv on PATH and network access on the first run. Downloads are
 cached in toolchain/release-dl/ and checked against the sha256 in PINS; a mismatch stops the build. The folder holds:
@@ -9,16 +9,16 @@ cached in toolchain/release-dl/ and checked against the sha256 in PINS; a mismat
     python/    python.org embeddable 3.14.9 + the packages of tools/requirements-installer.txt + tkinter (the Tcl/Tk 9.0
                files come out of the python.org installer's own component MSI, unpacked with msiexec /a and expand.exe;
                the installer is never run)
-    llvm/      llvm-mingw, x86_64 only, the files clang and lld need to compile and link totk.exe
-    runtime/   libtotkrt.a and libtotkrt-v2.a (build_game.py --make-runtime-lib with llvm/, x86-64-v3 and v2), the
+    llvm/      llvm-mingw, x86_64 only, the files clang and lld need to compile and link astralchain.exe
+    runtime/   libacrt.a and libacrt-v2.a (build_game.py --make-runtime-lib with llvm/, x86-64-v3 and v2), the
                runtime headers, romfs.c, patches.c and ov_zstd.c (compiled per install), deps/ (headers and import
                libraries of SDL3, Opus, libvpx, Vulkan and VMA)
-    bin/       totk_xlate.exe (+ .id), hactool.exe, SDL3.dll (upstream), libopus-0.dll, ninja.exe
-    recomp/, tools/, data/, installer/, licenses/, THIRD_PARTY_NOTICES.md, totk.ini.example
+    bin/       ac_xlate.exe (+ .id), hactool.exe, SDL3.dll (upstream), libopus-0.dll, ninja.exe
+    recomp/, tools/, data/, installer/, licenses/, THIRD_PARTY_NOTICES.md, astralchain.ini.example
     VERSION    the repository's VERSION plus the commit, 0.1.0+973c626; the installer's release string
-    TotK-Setup.exe  installer/launcher/launcher.c built with llvm/ (-mwindows): starts python/pythonw.exe -m installer.gui
+    Astral Chain-Setup.exe  installer/launcher/launcher.c built with llvm/ (-mwindows): starts python/pythonw.exe -m installer.gui
 
---prove compiles the generated C and links build/release-check/totk.exe with nothing but the folder's python/, llvm/,
+--prove compiles the generated C and links build/release-check/astralchain.exe with nothing but the folder's python/, llvm/,
 runtime/ and bin/ (PATH holds the Windows system directory and those), then runs the four probes there.
 
 Both need one game version extracted and lifted first (tools/extract.py, recomp/gen.py): generated/v121 or, without
@@ -94,7 +94,7 @@ PINS = {
 TCLTK_PAYLOAD = ('a12', 'ac87609db3f715404dd41a989c2f1706ea1512f3d86217f938d11c63af8eb505')
 SDL3_DLL_SHA256 = '2b4b128d8d510cc2d442693cf848c050d700d43dc667afe9e5fd82b0570d667e'   # SDL3.dll inside the SDL zip
 
-# llvm-mingw: what clang and lld need to compile and link totk.exe for x86_64-w64-mingw32 (dynamic LLVM, libc++, compiler-rt).
+# llvm-mingw: what clang and lld need to compile and link astralchain.exe for x86_64-w64-mingw32 (dynamic LLVM, libc++, compiler-rt).
 LLVM_BIN = {'clang.exe', 'clang++.exe', 'clang-23.exe', 'ld.lld.exe', 'llvm-ar.exe', 'llvm-ranlib.exe', 'llvm-nm.exe',
             'llvm-objdump.exe', 'llvm-objcopy.exe', 'llvm-strip.exe', 'llvm-readobj.exe', 'llvm-dlltool.exe',
             'llvm-rc.exe', 'llvm-cvtres.exe', 'llvm-windres.exe', 'llvm-wrapper.exe', 'mingw32-common.cfg',
@@ -300,7 +300,7 @@ def check_translator():
     """Stop on a translator older than the sources. build/xlate is built by hand and only copied here (the Linux release
     builds its own), so without a rebuild a translator change reaches no Windows release, and nothing fails: the runtime
     sends job fields the old exe ignores, as happened to gather_bias."""
-    idf = MAIN_ROOT / 'build' / 'xlate' / 'totk_xlate.id'
+    idf = MAIN_ROOT / 'build' / 'xlate' / 'ac_xlate.id'
     have = idf.read_text(encoding='ascii').strip() if idf.is_file() else 'none'
     want = build_xlate.identity()
     if have != want:
@@ -310,7 +310,7 @@ def check_translator():
 def build_bin(out):
     b = out / 'bin'
     b.mkdir(parents=True, exist_ok=True)
-    for f in ('totk_xlate.exe', 'totk_xlate.id'):
+    for f in ('ac_xlate.exe', 'ac_xlate.id'):
         shutil.copy2(MAIN_ROOT / 'build' / 'xlate' / f, b / f)
     shutil.copy2(MAIN_ROOT / 'toolchain' / 'hactool' / 'hactool.exe', b / 'hactool.exe')
     dll = unpack('sdl3-dll') / 'SDL3.dll'
@@ -378,18 +378,18 @@ def lifted_version():
 
 
 def runtime_lib(out, llvm):
-    """Build libtotkrt.a (x86-64-v3) and libtotkrt-v2.a (x86-64-v2) with the folder's llvm/, and copy them, the headers
+    """Build libacrt.a (x86-64-v3) and libacrt-v2.a (x86-64-v2) with the folder's llvm/, and copy them, the headers
     and the install-side sources into runtime/."""
     version = lifted_version()
     gen = MAIN_ROOT / 'generated' / version
     rt = out / 'runtime'
-    for cpu, name in (('v3', 'libtotkrt.a'), ('v2', 'libtotkrt-v2.a')):
+    for cpu, name in (('v3', 'libacrt.a'), ('v2', 'libacrt-v2.a')):
         build = MAIN_ROOT / 'build' / 'release-check' / f'rtlib-{cpu}'
         run([sys.executable, ROOT / 'tools' / 'build_game.py', '--make-runtime-lib', '--toolchain', llvm, '--cpu', cpu,
              '--version', version, '--deps', out / 'runtime' / 'deps', '--ninja', out / 'bin' / 'ninja.exe',
              '--gen', gen, '--out', build],
             env=clean_env(llvm / 'bin', out / 'bin'))
-        shutil.copy2(build / 'libtotkrt.a', rt / name)
+        shutil.copy2(build / 'libacrt.a', rt / name)
     for p in sorted((ROOT / 'runtime').rglob('*')):
         if p.suffix in RUNTIME_SUFFIXES and p.is_file():
             (rt / p.relative_to(ROOT / 'runtime')).parent.mkdir(parents=True, exist_ok=True)
@@ -409,7 +409,7 @@ def build_sources(out):
     text = shader_list.history(MAIN_ROOT / 'refs' / 'MacNativeGames', MNG_COMMIT)
     (out / 'data' / 'shader_list.tsv').write_text(text, encoding='utf-8', newline='\n')
     copy_tree(ROOT / 'installer', out / 'installer', lambda r: '__pycache__' in r or r.startswith('launcher/'))
-    shutil.copy2(ROOT / 'totk.ini.example', out / 'totk.ini.example')
+    shutil.copy2(ROOT / 'astralchain.ini.example', out / 'astralchain.ini.example')
     shutil.copy2(ROOT / 'THIRD_PARTY_NOTICES.md', out / 'THIRD_PARTY_NOTICES.md')
     (out / 'VERSION').write_text(version() + '\n', encoding='utf-8')
 
@@ -423,7 +423,7 @@ def version():
     return (ROOT / 'VERSION').read_text(encoding='utf-8').strip() + '+' + r.stdout.strip()
 
 
-# ---- TotK-Setup.exe --------------------------------------------------------------------------------------------------
+# ---- Astral Chain-Setup.exe --------------------------------------------------------------------------------------------------
 
 def c_wide(text):
     """A C wide string literal of text: ASCII as is, everything else as a universal character name."""
@@ -462,7 +462,7 @@ def build_launcher(out, llvm):
     run([llvm / 'bin' / 'llvm-windres.exe', '-I', ROOT / 'runtime', '-O', 'coff',
          ROOT / 'installer' / 'launcher' / 'launcher.rc', '-o', res], env=env)
     run([llvm / 'bin' / 'clang.exe', '-O2', '-mwindows', '-Wall', '-Wl,-s', '-I', work,
-         ROOT / 'installer' / 'launcher' / 'launcher.c', res, '-o', out / 'TotK-Setup.exe'], env=env)
+         ROOT / 'installer' / 'launcher' / 'launcher.c', res, '-o', out / 'Astral Chain-Setup.exe'], env=env)
 
 
 # ---- checks ----------------------------------------------------------------------------------------------------------
@@ -519,7 +519,7 @@ def write_zip(out, path):
 
 
 def prove(out, cpu='v3'):
-    """Compile the generated C and link totk.exe with the folder's tools only, then run the probes next to it."""
+    """Compile the generated C and link astralchain.exe with the folder's tools only, then run the probes next to it."""
     out = out.resolve()
     version = lifted_version()
     gen = MAIN_ROOT / 'generated' / version
@@ -529,7 +529,7 @@ def prove(out, cpu='v3'):
     t0 = time.time()
     run([out / 'python' / 'python.exe', out / 'tools' / 'build_game.py', '--toolchain', out / 'llvm', '--cpu', cpu,
          '--deps', out / 'runtime' / 'deps', '--runtime', out / 'runtime',
-         '--runtime-lib', out / 'runtime' / ('libtotkrt-v2.a' if cpu == 'v2' else 'libtotkrt.a'),
+         '--runtime-lib', out / 'runtime' / ('libacrt-v2.a' if cpu == 'v2' else 'libacrt.a'),
          '--ninja', out / 'bin' / 'ninja.exe', '--version', version, '--gen', gen, '--out', chk, '--exefs', ext / 'exefs',
          '--romfs', ext / 'romfs', '--profile', chk / 'profile'], env=env)
     print(f'prove: build {time.time() - t0:.0f} s')
@@ -537,7 +537,7 @@ def prove(out, cpu='v3'):
         shutil.copy2(out / 'bin' / dll, chk / dll)
     failed = []
     for probe in PROBES:
-        r = subprocess.run([str(chk / 'totk.exe'), probe], cwd=chk, env=clean_env(chk), capture_output=True, text=True,
+        r = subprocess.run([str(chk / 'astralchain.exe'), probe], cwd=chk, env=clean_env(chk), capture_output=True, text=True,
                            timeout=900)
         tail = (r.stdout.strip().splitlines() or [''])[-1]
         print(f'{probe}: exit {r.returncode}: {tail}')

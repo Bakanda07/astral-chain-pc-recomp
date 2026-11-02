@@ -30,7 +30,7 @@
  "phase.prepare.translate": "Translating the shaders",
  "phase.prepare.libraries": "Building the shaders for the graphics driver",
  "phase.prepare.pack": "Packing the shader cache into one file",
- "phase.cleanup.ini": "Writing totk.ini",
+ "phase.cleanup.ini": "Writing astralchain.ini",
  "phase.cleanup.temp": "Removing temporary files",
 
  "cli.usage": "Invalid command line: {detail}",
@@ -85,13 +85,13 @@
  "lift.failed": "Translating the game code failed (exit code {code}). Details: {log}",
  "compile.failed": "Compiling {game_exe} failed (exit code {code}). Details: {log}",
  "compile.exe_in_use": "{path} is in use. Close the game and run the installer again.",
- "prepare.xlate_in_use": "{path} is in use. Close the game, end any totk_xlate process left from an earlier run, then run the installer again.",
+ "prepare.xlate_in_use": "{path} is in use. Close the game, end any ac_xlate process left from an earlier run, then run the installer again.",
  "prepare.shader_list_missing": "The shader list is missing.",
  "prepare.romfs_patches_failed": "Writing the game data patches failed (exit code {code}). Details: {log}",
  "prepare.shaders_failed": "Preparing the shaders failed (exit code {code}). Details: {log}",
  "cleanup.romfs_unreadable": "The game data in {path} is missing or cannot be read after the install. Restart Windows, then run the installer again on the same folder: it extracts the game data again and keeps the rest.",
  "prepare.pack_failed": "Packing the shader cache failed (exit code {code}). Details: {log}",
- "cleanup.ini_failed": "totk.ini cannot be written: {detail}",
+ "cleanup.ini_failed": "astralchain.ini cannot be written: {detail}",
 
  "warn.lang_needs_fonts": "Text in {lang} needs the Switch system fonts. Choose the firmware folder (Contents/registered) to install them; without it some text may not show.",
  "warn.npdm_differs": "main.npdm differs from the reference {version} dump; only the code modules are used.",
@@ -101,7 +101,7 @@
  "warn.shaders_skipped": "The graphics driver crashed while building some shaders, so {count} were left out of the preparation. The game builds them when it first needs them, and the driver may crash there too; a driver update may fix it. Details: {log}",
  "warn.kernel_old": "Linux {version} lacks the write tracking the game relies on (6.7 or later); the game may run very slowly. Updating the system fixes this.",
 
- "ui.title": "TotK Setup",
+ "ui.title": "Astral Chain Setup",
  "ui.rebuild_title": "Rebuilding the game for your mods",
  "ui.start_game": "Start the game",
  "ui.version": "version {version}",
@@ -176,8 +176,8 @@
  "param.input.update": "update",
  "param.input.keys": "keys",
 
- "launcher.title": "TotK Setup",
- "launcher.python_missing": "The setup files are incomplete: the python folder next to TotK-Setup.exe is missing. Unpack the whole archive again and start TotK-Setup.exe from the unpacked folder.",
+ "launcher.title": "Astral Chain Setup",
+ "launcher.python_missing": "The setup files are incomplete: the python folder next to Astral Chain-Setup.exe is missing. Unpack the whole archive again and start Astral Chain-Setup.exe from the unpacked folder.",
 
  "lang.ja": "Japanese",
  "lang.en-US": "English (US)",

@@ -5,7 +5,7 @@
 // MacNativeGames contributors) make the game read both sizes from the patch page, and the texture heap that holds the
 // output- and scene-sized render targets grows with them.
 //
-// Settings, read at start: TOTK_OUTPUT_RES = <w>x<h> (default 1920x1080, the game's own), TOTK_RENDER_SCALE = the
+// Settings, read at start: AC_OUTPUT_RES = <w>x<h> (default 1920x1080, the game's own), AC_RENDER_SCALE = the
 // scene's size relative to the output: "game" (default, 5/6, the game's 1600x900 at 1080p) or a percentage; above 100
 // the game supersamples its scene, which smooths edges (anti-aliasing) at the cost of GPU time. The game's own final
 // pass (FSR 1 EASU) scales the scene to the output; the present scales the output to the window (vk_fsr.c).
@@ -37,12 +37,12 @@
 #include "cfg.h"
 #include "host.h"
 
-#define BASE_W 1920
-#define BASE_H 1080
+#define BASE_W 1600
+#define BASE_H 900
 #define SCENE_W 1600
 #define SCENE_H 900
 #define DTA_KIB 113664u      // DynamicTextureAllocatorMem, shipped
-#define SCENE_MAX 4096       // per side, as MacNativeGames' TOTK_RENDER_RES
+#define SCENE_MAX 4096       // per side, as MacNativeGames' AC_RENDER_RES
 #define SHADOW_BASE 960      // the sun shadow map's base size (its cascades: a D16 array of 4 layers)
 
 static struct {
@@ -51,8 +51,8 @@ static struct {
     int scene_set;             // the scene differs from the game's 5/6 of the output
     int heapdef_ok;            // romfs.c serves the grown HeapDef
     int on;                    // res_init switched the patch sets on
-    unsigned shadow;           // fixed sun shadow map size (TOTK_SHADOW_RES), 0: the game's own
-    double dlss_k;             // TOTK_DLSS quality/balanced/performance: the scene's share of the output, else 0
+    unsigned shadow;           // fixed sun shadow map size (AC_SHADOW_RES), 0: the game's own
+    double dlss_k;             // AC_DLSS quality/balanced/performance: the scene's share of the output, else 0
 } R;
 
 static void decide(void) {
@@ -60,18 +60,18 @@ static void decide(void) {
     R.decided = 1;
     R.ow = BASE_W;
     R.oh = BASE_H;
-    const char *o = cfg_value("TOTK_OUTPUT_RES");
+    const char *o = cfg_value("AC_OUTPUT_RES");
     unsigned w = 0, h = 0;
     char tail;
     if (sscanf(o, "%ux%u%c", &w, &h, &tail) == 2 && w >= 1280 && h >= 720 && w <= 7680 && h <= 4320) {
         R.ow = w & ~1u;
         R.oh = h & ~1u;
     } else {
-        rt_log("resolution: TOTK_OUTPUT_RES=%s is not <width>x<height> in 1280x720..7680x4320; 1920x1080", o);
+        rt_log("resolution: AC_OUTPUT_RES=%s is not <width>x<height> in 1280x720..7680x4320; 1920x1080", o);
     }
-    const char *s = cfg_value("TOTK_RENDER_SCALE");
+    const char *s = cfg_value("AC_RENDER_SCALE");
     double k = 5.0 / 6.0;
-    const char *m = cfg_value("TOTK_DLSS");   // a DLSS mode other than dlaa sets the scene size
+    const char *m = cfg_value("AC_DLSS");   // a DLSS mode other than dlaa sets the scene size
     static const struct { const char *name; double k; } dlss[] = {
         {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}};
     for (int i = 0; i < 3; i++)
@@ -87,7 +87,7 @@ static void decide(void) {
             k = pct / 100.0;
             R.scene_set = 1;
         } else {
-            rt_log("resolution: TOTK_RENDER_SCALE=%s is not game or a percentage 25..400; game", s);
+            rt_log("resolution: AC_RENDER_SCALE=%s is not game or a percentage 25..400; game", s);
         }
     }
     double sw = R.ow * k, sh = R.oh * k;
@@ -95,11 +95,11 @@ static void decide(void) {
     if (fit < 1.0) R.scene_set = 1;
     R.sw = (unsigned)(sw * fit + 0.5);
     R.sh = (unsigned)(sh * fit + 0.5);
-    const char *sr = cfg_value("TOTK_SHADOW_RES");
+    const char *sr = cfg_value("AC_SHADOW_RES");
     if (strcmp(sr, "game")) {
         unsigned n = (unsigned)atoi(sr);
         if (n >= 256 && n <= 4096 && !(n & 7)) R.shadow = n;
-        else rt_log("resolution: TOTK_SHADOW_RES=%s is not game or a size 256..4096 (a multiple of 8); game", sr);
+        else rt_log("resolution: AC_SHADOW_RES=%s is not game or a size 256..4096 (a multiple of 8); game", sr);
     }
 }
 
@@ -219,7 +219,7 @@ void res_heapdef_served(void) { R.heapdef_ok = 1; }
 // A fixed size (the shadow set, recomp/patches-v121.txt) keeps them still and sharper. Page +92.
 static void shadow_init(uint8_t *page) {
     if (!R.shadow) {
-        rt_log("resolution: sun shadow map sized by the game (TOTK_SHADOW_RES=game)");
+        rt_log("resolution: sun shadow map sized by the game (AC_SHADOW_RES=game)");
         return;
     }
     int set = rt_patch_set("shadow");
@@ -230,18 +230,18 @@ static void shadow_init(uint8_t *page) {
     int32_t n = (int32_t)R.shadow;
     memcpy(page + 92, &n, 4);
     rt_patch_switch(set, 1);
-    rt_log("resolution: sun shadow map %ux%u (TOTK_SHADOW_RES)", R.shadow, R.shadow);
+    rt_log("resolution: sun shadow map %ux%u (AC_SHADOW_RES)", R.shadow, R.shadow);
 }
 
 // ---- start: the patch page and the sets
 static uint64_t pack(unsigned w, unsigned h) { return (uint64_t)h << 32 | w; }
 
-// TOTK_SHADOW_RANGE (percent, 50 to 400; 100 = the game's): the sun's shadow cascades end at 20, 40, 80 and 160 m.
+// AC_SHADOW_RANGE (percent, 50 to 400; 100 = the game's): the sun's shadow cascades end at 20, 40, 80 and 160 m.
 // Other values multiply those distances through the cascade patch set (recomp/patches-v143.txt), so the sharp first
 // cascade reaches further and the visible steps between cascades move away from the player, at the cost of shadow
-// texels per metre (TOTK_SHADOW_SCALE pays that back).
+// texels per metre (AC_SHADOW_SCALE pays that back).
 static void res_shadow_range(void) {
-    int pct = cfg_int("TOTK_SHADOW_RANGE"), set = rt_patch_set("cascade");
+    int pct = cfg_int("AC_SHADOW_RANGE"), set = rt_patch_set("cascade");
     if (pct == 100) return;
     if (set < 0) {
         rt_log("resolution: the generated C has no cascade patch set; shadow_range stays 100");
@@ -324,7 +324,7 @@ int res_wants_wide_overlay(const unsigned out[2]) {
     return !res_is_16x9(out[0], out[1]) && rt_patch_set("aspect") >= 0;
 }
 
-// Field of view (TOTK_FOV, percent of the game's own, 70..140, live): the camera's vertical view angle times the
+// Field of view (AC_FOV, percent of the game's own, 70..140, live): the camera's vertical view angle times the
 // factor on page +60 (recomp/patches-v143.txt, set fov). The horizontal angle follows through the aspect ratio. 100
 // switches the set off, so the camera code is the game's own. Runs on a settings change (gfx_present.c
 // window_settings_live), the first time at the first present.
@@ -333,12 +333,12 @@ int res_wants_wide_overlay(const unsigned out[2]) {
 void res_fov_live(void) {
     static int set = -2, shown = 100;
     if (set == -2) set = rt_patch_set("fov");
-    int pct = cfg_int("TOTK_FOV");
+    int pct = cfg_int("AC_FOV");
     pct = pct < FOV_MIN ? FOV_MIN : pct > FOV_MAX ? FOV_MAX : pct;
     if (pct == shown) return;
     shown = pct;
     if (set < 0) {
-        rt_log("resolution: this game version has no field-of-view patch; TOTK_FOV=%d does nothing", pct);
+        rt_log("resolution: this game version has no field-of-view patch; AC_FOV=%d does nothing", pct);
         return;
     }
     float k = pct / 100.0f;

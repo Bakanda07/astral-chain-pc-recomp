@@ -552,30 +552,9 @@ uint64_t ldr_plt_stub(const char *module, const char *name) {
 }
 
 // ---- --probe-loader
-// Expected values, measured on the 1.1.0, 1.2.1 and 1.4.3 modules; the 1.4.3 relocation totals match the ones
-// MacNativeGames' port notes give for that version. 1.1.0 shares subsdk0 and sdk with 1.2.1 down to every count.
-typedef struct {
-    const char *name;
-    uint64_t kinds[K_COUNT], total, sym_import, sym_own;
-    uint32_t imports, to[MOD_COUNT], weak, init_off, init_array;
-} Expect;
-static const Expect expect_121[] = {
-    {"main", {508816, 1415, 32, 641}, 510904, 2088, 0, 675, {0, 16, 647}, 12, 0x30, 10673},
-    {"subsdk0", {1623, 12820, 1030, 3924}, 19397, 6576, 11198, 667, {9, 0, 654}, 4, 0x30, 45},
-    {"sdk", {10917, 13976, 1207, 8932}, 35032, 16, 24099, 13, {8, 0, 0}, 5, 0x30, 116},
-};
-static const Expect expect_110[] = {
-    {"main", {508604, 1412, 32, 639}, 510687, 2083, 0, 673, {0, 16, 645}, 12, 0x30, 10668},
-    {"subsdk0", {1623, 12820, 1030, 3924}, 19397, 6576, 11198, 667, {9, 0, 654}, 4, 0x30, 45},
-    {"sdk", {10917, 13976, 1207, 8932}, 35032, 16, 24099, 13, {8, 0, 0}, 5, 0x30, 116},
-};
-static const Expect expect_143[] = {
-    {"main", {499078, 1393, 28, 650}, 501149, 2071, 0, 680, {0, 16, 656}, 8, 0x10b4f10, 10717},
-    {"subsdk0", {3424, 10927, 905, 3817}, 19073, 6557, 9092, 663, {9, 0, 654}, 0, 0x20, 45},
-    {"sdk", {15013, 10135, 1079, 7832}, 34059, 10, 19036, 8, {8, 0, 0}, 0, 0x400, 83},
-};
-#define expect (RT_V143 ? expect_143 : RT_V110 ? expect_110 : expect_121)
-
+// No pinned per-version totals yet: the probe reports the measured import and relocation counts and checks the
+// structural invariants only (two modules main and sdk, DT_INIT in .text, init_array in the data image, no strong
+// unresolved imports, the nnMain identity).
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("  FAIL: " __VA_ARGS__); putchar('\n'); } } while (0)
 
@@ -664,8 +643,8 @@ int probe_loader(void) {
     const RtConfig *cfg = rt_config();
     hostfn_add_override(PROBE_SYMBOL, probe_override);
     ldr_load(cfg->exefs);
-    if (nmods != (int)(sizeof expect_121 / sizeof *expect_121)) {
-        printf("probe-loader: FAILED (%d modules, expected 3)\n", nmods);
+    if (nmods != 2) {
+        printf("probe-loader: FAILED (%d modules, expected main and sdk)\n", nmods);
         return 1;
     }
     printf("modules (exefs %s):\n", cfg->exefs);
@@ -680,12 +659,6 @@ int probe_loader(void) {
                "%u\n", m->pub.name, (unsigned long long)m->pub.base, (unsigned long long)m->pub.size, m->init_off,
                (unsigned long long)(m->pub.init_array_size / 8), (unsigned long long)m->pub.init_array_size,
                m->imports, to, m->weak_unresolved);
-        CHECK(!strcmp(m->pub.name, expect[i].name), "module %d is %s", i, m->pub.name);
-        CHECK(m->imports == expect[i].imports && m->weak_unresolved == expect[i].weak &&
-              !memcmp(m->import_to, expect[i].to, sizeof m->import_to), "%s import table differs from section 0.1",
-              m->pub.name);
-        CHECK(m->init_off == expect[i].init_off && m->pub.init_array_size / 8 == expect[i].init_array,
-              "%s DT_INIT/init_array differ from section 0.1", m->pub.name);
     }
     printf("relocations:\n");
     for (int i = 0; i < nmods; i++) {
@@ -696,9 +669,6 @@ int probe_loader(void) {
                (unsigned long long)m->kinds[K_ABS64], (unsigned long long)m->kinds[K_GLOB_DAT],
                (unsigned long long)m->kinds[K_JUMP_SLOT], (unsigned long long)total,
                (unsigned long long)m->sym_import, (unsigned long long)m->sym_own);
-        CHECK(!memcmp(m->kinds, expect[i].kinds, sizeof m->kinds) && total == expect[i].total &&
-              m->sym_import == expect[i].sym_import && m->sym_own == expect[i].sym_own,
-              "%s relocations differ from section 0.2", m->pub.name);
     }
     printf("constructors:\n");
     for (int i = 0; i < nmods; i++) {
