@@ -107,6 +107,10 @@ class Module:
             if shndx and (info & 0xF) == 2:
                 starts.add(self.base + value)
         for _, typ, _, add in self.nso.relocs:
-            if typ == R_AARCH64_RELATIVE:
+            # RELATIVE addends are module-relative; a pointer into the MOD0 header (text+8, 0x1C bytes per
+            # Switchbrew) addresses data, not code, and must not seed a function. Astral Chain's main takes such
+            # pointers (addends 0 and 1) and lifting the header words produced a bogus function with an
+            # unsupported-instruction trap at main+0x14.
+            if typ == R_AARCH64_RELATIVE and add >= 0x24:
                 starts.add(self.base + add)
         return sorted(a for a in starts if self.in_text(a))
