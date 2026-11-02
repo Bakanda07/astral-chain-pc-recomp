@@ -71,8 +71,11 @@ class Context:
     def plan(self, forced=()):
         """Fill keys (once), runs and reasons. forced: step ids that must run."""
         if not self.keys:
+            # A release folder that lacks files gets empty keys: the check step stops the run with
+            # check.release_incomplete, and computing a key can need those files (clang --version, the shader list).
+            incomplete = bool(self.layout.missing(getattr(self, 'cpu', 'v3')))
             for s in self.steps:
-                self.keys[s.id] = s.key(self)
+                self.keys[s.id] = '' if incomplete else s.key(self)
         for s in self.steps:
             rec = self.record(s.id)
             if s.always or s.id in forced:

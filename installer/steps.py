@@ -35,10 +35,18 @@ from .layout import EXE, SUPPORTED, version_tag
 from .runner import InstallError, Step
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
-import extract  # noqa: E402
-import shader_list  # noqa: E402
-from extract_exefs import (common_tickets, container_entries, load_keys, nca_ctr_key, nca_inventory,  # noqa: E402
-                           program_nca)
+try:
+    import extract  # noqa: E402
+    import shader_list  # noqa: E402
+    from extract_exefs import (common_tickets, container_entries, load_keys, nca_ctr_key, nca_inventory,  # noqa: E402
+                               program_nca)
+    TOOLS_IMPORT_ERROR = None
+except ImportError as exc:
+    # A release folder whose tools/ is missing or partly copied: the check step names the missing files, so the setup
+    # reports check.release_incomplete instead of stopping on an import before it reaches any step.
+    extract = shader_list = None
+    common_tickets = container_entries = load_keys = nca_ctr_key = nca_inventory = program_nca = None
+    TOOLS_IMPORT_ERROR = exc
 
 GiB = 1 << 30
 DEST_EXTRA = 4 * GiB      # beside the RomFS: shader and pipeline caches (about 2 GB), exefs, astralchain.exe, seed files
@@ -311,7 +319,9 @@ class Check(Step):
         # reported by run(), where the error names this step.
         try:
             self.host(ctx)
-        except InstallError:
+        except (InstallError, OSError):
+            # OSError covers a release folder without llvm/: the clang subprocess cannot start. run() then names the
+            # missing files with check.release_incomplete.
             pass
         return ''
 
@@ -320,6 +330,8 @@ class Check(Step):
         missing = layout.missing(getattr(ctx, 'cpu', 'v3'))
         if missing:
             raise InstallError('check.release_incomplete', paths=missing[:5])
+        if TOOLS_IMPORT_ERROR is not None:
+            raise InstallError('check.release_incomplete', paths=[f'tools ({TOOLS_IMPORT_ERROR})'])
         if dest.exists() and not dest.is_dir():
             raise InstallError('check.dest_not_folder', path=str(dest))
         own = (ctx.temp, *ctx.temp.parents)   # a temp folder inside the install folder (installer/cli.py) is ours
@@ -834,7 +846,12 @@ def runtime_key(ctx):
     """Fingerprint of what astralchain.exe is built from besides the lifted code: the runtime, the toolchain and the build
     tools. Shader preparation depends on these, not on the code cheats a lift adds."""
     layout, cpu = ctx.layout, getattr(ctx, 'cpu', 'v3')
-    clang = subprocess.run([str(layout.clang), '--version'], capture_output=True, text=True).stdout
+    try:
+        clang = subprocess.run([str(layout.clang), '--version'], capture_output=True, text=True).stdout
+    except OSError:
+        # No clang in this folder: every key is computed before any step runs, so return a marker and let the check
+        # step report the missing files instead of failing here.
+        clang = 'no-clang'
     tools = [layout.tools / n for n in ('build_game.py', 'romfs_index.py', 'check_content.py')]
     return fingerprint('runtime-1', cpu, layout.runtime_lib_for(cpu), layout.runtime, layout.deps or 'system',
                        layout.sysroot or 'host', *tools, clang, *[d.name for d in layout.dlls])
