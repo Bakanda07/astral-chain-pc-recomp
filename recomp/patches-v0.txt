@@ -31,3 +31,23 @@ spin main 80f374 80f37c   # 3 instructions; loads
 spin main 83f734 83f8f0 83f904   # 36 instructions; loads
 spin main 864c50 864c88   # 14 instructions; loads
 spin main 9920d4 9920fc   # 5 instructions; loads
+
+# 1062p: the resolution mod of the community 1.0.1 cheat (1888x1062, no dynamic resolution), backported to 1.0.0.
+# 1.0.0's own sizes are 1600x900 docked and 1280x720 handheld; these sites make it report and use 1888x1062 instead:
+# the two getters of the render size, the two places that pick the docked or handheld pair, and the three scales the
+# game sets from the width it read. AC_RES1062=1 turns it on (off by default: +38% pixels in the scene).
+set  res1062 AC_RES1062 0
+site res1062 main 42e5f0 5280c808 5280ec08   # mov w8, #0x640 -> #0x760  (render size, docked width)
+site res1062 main 42e5f8 52807088 528084c8   # mov w8, #0x384 -> #0x426  (docked height)
+site res1062 main 4093d4 5280c809 5280ec09   # mov w9, #0x640 -> #0x760  (docked or handheld, width)
+site res1062 main 4093e0 52807089 528084c9   # mov w9, #0x384 -> #0x426  (height)
+site res1062 main 40b8f4 5280c809 5280ec09   # mov w9, #0x640 -> #0x760  (same pair, the display path)
+site res1062 main 40b904 52807089 528084c9   # mov w9, #0x384 -> #0x426
+site res1062 main 40af74 7119001f 711d801f   # cmp w0, #0x640 -> #0x760  (scale 0)
+site res1062 main 40af78 52807088 528084c8   # mov w8, #0x384 -> #0x426
+site res1062 main 40af94 321603e8 5280a008   # mov w8, #0x400 -> #0x500  (scale 1, low width)
+site res1062 main 40af98 5280b409 5280ec09   # mov w9, #0x5a0 -> #0x760  (scale 1, high width)
+site res1062 main 40af9c 7119001f 711d801f   # cmp w0, #0x640 -> #0x760
+site res1062 main 40afa0 52804ed4 52805a14   # mov w20, #0x276 -> #0x2d0  (scale 1, low height)
+site res1062 main 40afa4 52806556 528084d6   # mov w22, #0x32a -> #0x426  (scale 1, high height)
+site res1062 main 40afc0 7119001f 711d801f   # cmp w0, #0x640 -> #0x760  (scale 2)
