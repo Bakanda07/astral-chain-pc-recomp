@@ -1106,6 +1106,9 @@ static void ov_close_directory(Cpu *c) { close_directory(arg_x(c, 0)); }
 static void ov_mount_save(Cpu *c) { ret_x(c, mount_save(arg_p(c, 0), arg_p(c, 1))); }
 static void ov_mount_save_ro(Cpu *c) { ret_x(c, mount_save_ro(arg_p(c, 0), arg_x(c, 1), arg_p(c, 2))); }
 static void ov_save_exists(Cpu *c) { ret_x(c, save_exists(arg_x(c, 0), arg_p(c, 1))); }
+// The save data lives in the host profile and mount_save creates it when it is missing, so ensuring it is the uid
+// check alone. Left to the SDK, this opens fsp-srv for the save's IFileSystem, which this port does not serve.
+static void ov_ensure_save(Cpu *c) { ret_x(c, my_uid(arg_p(c, 0)) ? 0 : FS_R_TARGET_NOT_FOUND); }
 static void ov_mount_temp(Cpu *c) { ret_x(c, mount_temp(arg_p(c, 0))); }
 static void ov_unmount(Cpu *c) { unmount(arg_p(c, 0)); }
 static void ov_commit(Cpu *c) { ret_x(c, commit(arg_p(c, 0))); }
@@ -1141,9 +1144,13 @@ static void ov_set_priority(Cpu *c) { (void)c; }
 #define S_MOUNT_SAVE "_ZN2nn2fs13MountSaveDataEPKcRKNS_7account3UidE"
 #define S_MOUNT_SAVE_RO "_ZN2nn2fs21MountSaveDataReadOnlyEPKcNS_13ApplicationIdERKNS_7account3UidE"
 #define S_SAVE_EXISTS "_ZN2nn2fs18IsSaveDataExistingENS_13ApplicationIdERKNS_7account3UidE"
+#define S_ENSURE_SAVE "_ZN2nn2fs14EnsureSaveDataERKNS_7account3UidE"
 #define S_MOUNT_TEMP "_ZN2nn2fs21MountTemporaryStorageEPKc"
 #define S_UNMOUNT "_ZN2nn2fs7UnmountEPKc"
 #define S_COMMIT "_ZN2nn2fs6CommitEPKc"
+// CommitSaveData and Commit run the same SDK body (nn::fs::detail::Commit at sdk+0x1e7c70) with only the log message
+// string differing, so the host's commit answers both; left to the SDK, the access-log check in that body opens fsp-srv.
+#define S_COMMIT_SAVE "_ZN2nn2fs14CommitSaveDataEPKc"
 #define S_CREATE_CACHE "_ZN2nn2fs18CreateCacheStorageEill"
 #define S_DELETE_CACHE "_ZN2nn2fs18DeleteCacheStorageEi"
 #define S_MOUNT_CACHE "_ZN2nn2fs17MountCacheStorageEPKci"
@@ -1177,9 +1184,11 @@ HOST_OVERRIDE(S_CLOSE_DIRECTORY, ov_close_directory);
 HOST_OVERRIDE(S_MOUNT_SAVE, ov_mount_save);
 HOST_OVERRIDE(S_MOUNT_SAVE_RO, ov_mount_save_ro);
 HOST_OVERRIDE(S_SAVE_EXISTS, ov_save_exists);
+HOST_OVERRIDE(S_ENSURE_SAVE, ov_ensure_save);
 HOST_OVERRIDE(S_MOUNT_TEMP, ov_mount_temp);
 HOST_OVERRIDE(S_UNMOUNT, ov_unmount);
 HOST_OVERRIDE(S_COMMIT, ov_commit);
+HOST_OVERRIDE(S_COMMIT_SAVE, ov_commit);
 HOST_OVERRIDE(S_CREATE_CACHE, ov_create_cache);
 HOST_OVERRIDE(S_DELETE_CACHE, ov_delete_cache);
 HOST_OVERRIDE(S_MOUNT_CACHE, ov_mount_cache);
@@ -1194,9 +1203,9 @@ HOST_OVERRIDE(S_SET_PRIORITY, ov_set_priority);
 static const char *const probe_symbols[] = {
     S_OPEN_FILE, S_FILE_SIZE, S_CLOSE_FILE, S_ENTRY_TYPE, S_READ_FILE, S_READ_OPTIONS, S_READ_EXACT, S_WRITE_FILE,
     S_SET_FILE_SIZE, S_FLUSH_FILE, S_CREATE_FILE, S_DELETE_FILE, S_RENAME_FILE, S_CREATE_DIRECTORY, S_DELETE_RECURSIVE,
-    S_OPEN_DIRECTORY, S_READ_DIRECTORY, S_CLOSE_DIRECTORY, S_MOUNT_SAVE, S_MOUNT_SAVE_RO, S_SAVE_EXISTS, S_MOUNT_TEMP,
-    S_UNMOUNT, S_COMMIT, S_CREATE_CACHE, S_DELETE_CACHE, S_MOUNT_CACHE, S_OPEN_CACHE_LIST, S_READ_CACHE_LIST,
-    S_CLOSE_CACHE_LIST, S_SET_PRIORITY, S_MOUNT_ROM, S_QUERY_CACHE, S_INITIALIZE};
+    S_OPEN_DIRECTORY, S_READ_DIRECTORY, S_CLOSE_DIRECTORY, S_MOUNT_SAVE, S_MOUNT_SAVE_RO, S_SAVE_EXISTS, S_ENSURE_SAVE,
+    S_MOUNT_TEMP, S_UNMOUNT, S_COMMIT, S_COMMIT_SAVE, S_CREATE_CACHE, S_DELETE_CACHE, S_MOUNT_CACHE,
+    S_OPEN_CACHE_LIST, S_READ_CACHE_LIST, S_CLOSE_CACHE_LIST, S_SET_PRIORITY, S_MOUNT_ROM, S_QUERY_CACHE, S_INITIALIZE};
 #define NPROBE ((int)(sizeof probe_symbols / sizeof *probe_symbols))
 #define SAMPLES 64
 #define HEAD_BYTES (8u << 20)      // a sampled file is compared whole up to this size, else head and tail
@@ -1599,6 +1608,8 @@ static void probe_storage(void) {
     uint64_t got = 0;
     int type = -1;
 
+    CHECK(RES(S_ENSURE_SAVE, U(other)) == FS_R_TARGET_NOT_FOUND, "EnsureSaveData for another user");
+    CHECK(RES(S_ENSURE_SAVE, U(uid)) == 0, "EnsureSaveData");
     CHECK(RES(S_MOUNT_SAVE, U("save"), U(other)) == FS_R_TARGET_NOT_FOUND, "MountSaveData for another user");
     CHECK(RES(S_MOUNT_SAVE, U("save"), U(uid)) == 0, "MountSaveData");
     CHECK(RES(S_MOUNT_SAVE, U("save"), U(uid)) == FS_R_ALREADY_EXISTS, "MountSaveData twice");

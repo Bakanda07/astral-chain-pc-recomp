@@ -1,9 +1,9 @@
 // The filesystem proxy service ("fsp-srv") for Astral Chain 1.0.0.
 //
 // The port serves the file systems themselves in runtime/fs_host.c and overrides the nn::fs entry points it can reach.
-// The SDK still opens fsp-srv for two side paths: its access-log switch (GetGlobalAccessLogMode) and, on the commit
-// path, the IFileSystem object behind a mounted save. The access-log switch must answer success with mode 0 (an error
-// makes the SDK abort); the save data itself is committed by the host override of CommitSaveData.
+// The SDK still opens fsp-srv for one side path: its access-log switch (GetGlobalAccessLogMode). That switch must answer
+// success with mode 0 (an error makes the SDK abort). The save data, including the commit path's own IFileSystem object,
+// never reaches this port: runtime/fs_host.c overrides MountSaveData, EnsureSaveData, Commit and CommitSaveData.
 #include <stdint.h>
 
 #include "host.h"
