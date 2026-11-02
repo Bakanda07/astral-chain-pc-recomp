@@ -52,3 +52,27 @@ Watch at runtime:
 - Bink 2 movies: guest code, but they may use nn::codec or other host services not yet implemented.
 - Heap size 3 GB: the TotK memory layer reserves a large heap; keep the reservation but watch the game's
   requested sizes at boot (nv::Initialize graphics work memory).
+
+## Census results (tools/import_census.py, base 1.0.0)
+
+- main imports 337 symbols, sdk exports 24 751, the host overrides 121 (plus 7 observers). No strong import of
+  main is unresolved (every one is an sdk export or a host override), so the loader's link step cannot stop on
+  a missing symbol.
+- No `__cxa_throw`, `_Unwind_*` or `longjmp` among the imports (only `__cxa_guard_acquire/_release`,
+  `__cxa_pure_virtual`): the callee-saved trust of recomp/regs.py holds.
+- Import groups: nn::fs 19 (all directly imported), nn::oe 9, nn::os 9, nn::hid (no GetNpadStates: input goes
+  elsewhere, watch at boot), nn::mem, nn::nifm (Initialize), nn::time, nn::util, nn::codec (1 direct opus
+  import), nn::image JpegDecoder/JpegEncoder (new vs TotK, resolved by sdk), nn::prepo, nn::swkbd, nn::fontll,
+  nn::account, nn::friends, nv::InitializeGraphics, plain libc/musl/math (73) and C++/libc++ support (25).
+- Dead host overrides to purge later (not imported by main): hid GetNpadStates/GetSixAxisSensor/GetVibrationDevice/
+  detail::*, fs InitializeForApplication, oe Initialize/TryPopLaunchParameter/FinishStartupLogo/SetCpuBoostMode/
+  GetExpectedVolumeBalance/PopNotificationMessage/SetUserInactivityDetectionTimeExtended, pl
+  GetSharedFontLoadState, vi GetDisplayVsyncEvent, aoc, err, am, nfp.
+
+## Code generation notes (base 1.0.0)
+
+- main: 27 788 functions, 2 670 jump tables, 44 297 traps, 1 552 branches through dispatch, 0 unsupported
+  instructions. sdk: 33 564 functions, 516 jump tables, 36 919 traps, 0 unsupported.
+- Three R_AARCH64_RELATIVE relocations in main's .rodata point at module base +0/+1 (the MOD0 header itself).
+  recomp/module.py seeds() now ignores RELATIVE addends below 0x24 so the lifter no longer decodes header words
+  as code (fix for the bogus `rt_udf` at 0x7000000014).

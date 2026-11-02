@@ -363,12 +363,15 @@ static void render_thread(void *p) {
             continue;
         }
         if (pace == 0) {
-            next = now + frame_ns;   // where the timer goes on if the device stops pacing
+            if (now < next) {
+                plat_wait_ns(next - now);   // the Switch DSP renders one frame per frame_ns: wait for our slot
+                continue;
+            }
         } else {
             if (next > now) plat_wait_ns(next - now);
             else if (now - next > 100000000ull) next = now;   // fell far behind (debugger, sleep): resynchronise
-            next += frame_ns;
         }
+        next += frame_ns;   // advances at exactly one frame per render; late wakes are absorbed by the next render
         plat_mutex_lock(&r->lock);
         if (r->state == 0) {
             voices_prepare(r);
