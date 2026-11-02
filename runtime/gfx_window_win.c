@@ -3,7 +3,7 @@
 // The swapchain and the present are gfx_present.c's. The in-game menu's keyboard and mouse come from the window
 // procedure (ui/menu_win.cpp), and so do the game's (input_win.c).
 //
-// The process is per-monitor DPI aware (totk.manifest): every size here is physical pixels, AC_WINDOW_SIZE included,
+// The process is per-monitor DPI aware (astralchain.manifest): every size here is physical pixels, AC_WINDOW_SIZE included,
 // and the swapchain matches the screen pixel for pixel. A window moved to a monitor at another display scale keeps its
 // client size (WM_GETDPISCALEDSIZE); the menu takes its text size floor from the window's DPI (gfx_window_dpi).
 #include <stdio.h>
@@ -282,7 +282,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 static void window_main(void *arg) {
     (void)arg;
     HINSTANCE inst = GetModuleHandleW(NULL);
-    // Icon resource 1 of totk.rc (runtime/astralchain.ico): the title bar, the taskbar button and Alt+Tab.
+    // Icon resource 1 of astralchain.rc (runtime/astralchain.ico): the title bar, the taskbar button and Alt+Tab.
     WNDCLASSEXW wc = {.cbSize = sizeof wc, .lpfnWndProc = wnd_proc, .hInstance = inst,
                       .hIcon = LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON),
                                           GetSystemMetrics(SM_CYICON), LR_SHARED),

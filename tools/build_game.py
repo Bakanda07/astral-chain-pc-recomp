@@ -159,11 +159,11 @@ DEFAULT_DEPS = ROOT / 'toolchain' / 'deps-mingw'
 INSTALL_SIDE = {'romfs.c', 'patches.c', 'ov_zstd.c'}
 LIB_NAME = 'libacrt.a'
 AR = UCRT / 'llvm-ar.exe' if WIN else on_path('llvm-ar')
-WINDRES = UCRT / 'windres.exe'   # runtime/totk.rc: the manifest of astralchain.exe
+WINDRES = UCRT / 'windres.exe'   # runtime/astralchain.rc: the manifest of astralchain.exe
 TOOLCHAIN_BIN = None   # llvm-mingw bin directory, set by main() for --toolchain
 DEPS = None            # the deps directory of an llvm-mingw build
 # tools/data/expected-<display version>.json for each build version name.
-DISPLAY_VERSIONS = {'v0': '1.0.0', 'v110': '1.1.0', 'v112': '1.1.2', 'v121': '1.2.1', 'v143': '1.4.3'}
+DISPLAY_VERSIONS = {'v0': '1.0.0'}
 
 GiB = 1 << 30
 # Peak commit of one compile, 1.2.1 at -O1 (2026-10-20): 120-180 MiB per ~3 MiB chunk, 568 MiB for main_table.c
@@ -278,7 +278,7 @@ def other_os(name):
     stem = name.rsplit('.', 1)[0]
     if WIN:
         return stem.endswith('_sdl') or name == 'linux.c'
-    return stem.endswith('_win') or name in ('win32.c', 'totk.rc')
+    return stem.endswith('_win') or name in ('win32.c', 'astralchain.rc')
 
 
 def runtime_sources(skip=()):
@@ -402,7 +402,7 @@ def ninja_file(gen, out, mods, pool_depth, skip=(), prebuilt=False, runtime_lib=
     for src in sources:
         o = runtime_object(out, src)
         if src.suffix == '.rc':   # windres writes no depfile: the files totk.rc embeds are listed by hand
-            lines.append(f'build {ninja_path(o)}: rc {ninja_path(src)} | {ninja_path(RUNTIME / "totk.manifest")} '
+            lines.append(f'build {ninja_path(o)}: rc {ninja_path(src)} | {ninja_path(RUNTIME / "astralchain.manifest")} '
                          f'{ninja_path(RUNTIME / "astralchain.ico")}')
         else:
             lines.append(f'build {ninja_path(o)}: cc_rt {ninja_path(src)}')
@@ -721,7 +721,7 @@ def mib(n):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--version', default='v121', help='game version (default v121)')
+    ap.add_argument('--version', default='v0', help='game version (default v0)')
     ap.add_argument('--cpu', choices=('v2', 'v3'), default='v3',
                     help='target CPU level: v3 (AVX2/FMA, default) or v2 (SSE4.2, for older CPUs; slower)')
     ap.add_argument('--gen', type=Path, help='generated C directory (default generated/<version>)')
@@ -768,7 +768,7 @@ def main():
     extracted = None if args.exefs and args.romfs else work_dir() / 'extracted' / args.version
     paths = {'exefs': (args.exefs or extracted / 'exefs').resolve(),
              'romfs': (args.romfs or extracted / 'romfs').resolve(),
-             'profile': (args.profile or ROOT / 'build' / ('profile' if args.version == 'v121'
+             'profile': (args.profile or ROOT / 'build' / ('profile' if args.version == 'v0'
                                                            else f'profile-{args.version}')).resolve()}
     has_romfs = (paths['romfs'] / 'index.json').is_file()
     if not (has_romfs or args.no_romfs or args.make_runtime_lib or args.compile_only):

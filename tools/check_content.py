@@ -21,7 +21,7 @@ BLOCKED_SUFFIXES = {
     ".nso", ".nro", ".nrr", ".npdm", ".keys",
     ".bfres", ".bntx", ".bnsh", ".sarc", ".szs", ".zs", ".pack", ".byml",
     ".bgyml", ".msbt", ".bars", ".bwav", ".bfwav", ".bfstm", ".bfttf",
-    ".bfotf", ".sharcb", ".webm",
+    ".bfotf", ".sharcb", ".webm", ".pkz", ".bk2", ".bnk", ".wta", ".wtp", ".wtb", ".bxm", ".mot", ".evn", ".uvd", ".uid", ".dtt", ".bea", ".wem", ".pck",
 }
 
 # ExeFS modules carry no extension.

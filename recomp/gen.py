@@ -1,7 +1,7 @@
 # Adapted from LAS Recomp tools/gen.py @ da35b83 (MIT, Copyright (c) 2026 Peiikai).
 """Generate C for the ExeFS modules: function discovery, then parallel emission into chunked C files.
 
-Usage: gen.py --exefs build/extracted/v121/exefs --out generated/v121 [--modules main,subsdk0,sdk] [--jobs N]
+Usage: gen.py --exefs build/extracted/v0/exefs --out generated/v0 [--modules main,sdk] [--jobs N]
               [--limit N] [--chunk-fns N] [--chunk-bytes B] [--big-fn B] [--patches FILE]
 
 Output, under --out:
@@ -644,7 +644,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--exefs', type=Path, required=True)
     ap.add_argument('--out', type=Path, required=True)
-    ap.add_argument('--modules', default='main,subsdk0,sdk')
+    ap.add_argument('--modules', default='main,sdk')
     ap.add_argument('--jobs', type=int, help='emit workers (default: by free memory and CPU count)')
     ap.add_argument('--limit', type=int, default=0, help='emit only the first N functions of each module')
     ap.add_argument('--chunk-fns', type=int, default=3000, help='functions per chunk at most')

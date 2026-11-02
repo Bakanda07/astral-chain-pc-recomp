@@ -663,118 +663,12 @@ static void probe_unknown_service(void) {
     CHECK(code == 70 && line, "unknown service fatal (child output: %s)", out);
 }
 
-// ---- the game's own nn::audio client: main's PLT stubs -> lifted sdk -> SVCs -> this file
-#define SYM_INIT_PARAM "_ZN2nn5audio32InitializeAudioRendererParameterEPNS0_22AudioRendererParameterE"
-#define SYM_WORK_SIZE "_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE"
-#define SYM_OPEN "_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm"
-#define SYM_CONFIG_SIZE "_ZN2nn5audio36GetAudioRendererConfigWorkBufferSizeERKNS0_22AudioRendererParameterE"
-#define SYM_CONFIG_INIT "_ZN2nn5audio29InitializeAudioRendererConfigEPNS0_19AudioRendererConfigERKNS0_22AudioRendererParameterEPvm"
-#define SYM_START "_ZN2nn5audio18StartAudioRendererENS0_19AudioRendererHandleE"
-#define SYM_STOP "_ZN2nn5audio17StopAudioRendererENS0_19AudioRendererHandleE"
-#define SYM_UPDATE "_ZN2nn5audio26RequestUpdateAudioRendererENS0_19AudioRendererHandleEPKNS0_19AudioRendererConfigE"
-#define SYM_FRAMES "_ZN2nn5audio33GetAudioRendererElapsedFrameCountEPKNS0_19AudioRendererConfigE"
-#define SYM_CLOSE "_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE"
-#define SYM_WAIT_EVENT "_ZN2nn2os15WaitSystemEventEPNS0_15SystemEventTypeE"
-
-static int revision_number_of(uint32_t rev) { return (int)(rev >> 24) - '0'; }
-
-static uint64_t stub(const char *sym) {
-    uint64_t a = ldr_plt_stub("main", sym);
-    if (!a) rt_fatal("probe-ipc: no PLT stub for %s in main", sym);
-    return a;
-}
-
-// Without nn::init::Start the SDK's own initialisation has not run; the probe sets up the two things the audio client
-// path reads (found by running it):
-// - the "current thread object" at TLR+0x1F8 is the kernel's zeroed placeholder. SdkMutex compares its lock tag with
-//   ThreadType+0x1B0 (sdk+0x13186c), which nnosInitialize sets to the thread's handle; a zero there makes every free
-//   mutex look owned by the caller (__cxa_guard_acquire in nn::sm::Initialize aborts);
-// - sdk's full DT_INIT needs nn::os initialised (its TLS slot constructor reaches ThreadManager), which is the boot
-//   sequence's job. The audio client only needs its two sf heap constructors: 16 KiB ExpHeaps on static buffers,
-//   stored at sdk+0xd37e90 and sdk+0xd3bec0 (CreateAudioRendererManagerByHipc reads the second). The 1.4.3 SDK creates
-//   that heap lazily; its OpenAudioRenderer takes nn::audio::detail::g_RendererResourceSemaphore first, which the
-//   constructor at sdk+0x221fb0 initializes (two renderers).
-static void sdk_prepare(Cpu *c) {
-    Cpu *again;
-    ST32(LD64(c->tpidrro + 0x1F8) + 0x1B0, kern_main_thread(&again));
-    const RtLoaded *sdk = ldr_module(2);
-    static const uint64_t ctors_121[] = {0x1dcbd0, 0x1de8a0}, ctors_143[] = {0x221fb0};
-    const uint64_t *heap_ctors = RT_V143 ? ctors_143 : ctors_121;
-    unsigned nctors = RT_V143 ? sizeof ctors_143 / sizeof *ctors_143 : sizeof ctors_121 / sizeof *ctors_121;
-    for (unsigned k = 0; k < nctors; k++) {
-        int found = 0;
-        for (uint64_t e = 0; e < sdk->init_array_size; e += 8)
-            found |= LD64(sdk->init_array + e) == sdk->base + heap_ctors[k];
-        if (!found) rt_fatal("probe-ipc: sdk+%#llx is not an sdk constructor", (unsigned long long)heap_ctors[k]);
-        rt_call(c, sdk->base + heap_ctors[k], 0);
-    }
-}
-
-static void probe_sdk_client(Cpu *c) {
-    unsigned trace = rt_trace;
-    rt_trace |= RT_TRACE_IPC;   // log the requests the SDK sends during set-up
-    sdk_prepare(c);
-    uint64_t requests0 = (uint64_t)plat_cas64(&g_requests, 0, 0);
-    uint64_t released0 = ipc_sessions_released();
-    int32_t *param = mem_kernel_alloc(0x100, 64);
-    rt_call(c, stub(SYM_INIT_PARAM), 1, (uint64_t)(uintptr_t)param);
-    printf("sdk: InitializeAudioRendererParameter -> %d Hz x%d, mix buffers %d, revision word %#x (REV%d)\n", param[0],
-           param[1], param[2], (uint32_t)param[13], revision_number_of((uint32_t)param[13]));
-    CHECK(param[0] == 48000 && param[1] == 240 && (uint32_t)param[13] == AUDREN_REV(RT_V143 ? 15 : 11),
-          "SDK default parameter (Astral Chain 1.2.1 builds REV11 requests, 1.4.3 REV15)");
-    param[2] = g_param.mix_buffer_count, param[3] = g_param.submix_count, param[4] = g_param.voice_count;
-    param[5] = g_param.sink_count, param[6] = g_param.effect_count;
-    uint64_t work = rt_call(c, stub(SYM_WORK_SIZE), 1, (uint64_t)(uintptr_t)param);
-    printf("sdk: GetAudioRendererWorkBufferSize -> %#llx (service %#x + client part)\n", (unsigned long long)work,
-           AUDREN_WORK_BUFFER_BYTES);
-    CHECK(work >= AUDREN_WORK_BUFFER_BYTES && work < (64u << 20), "SDK GetAudioRendererWorkBufferSize %#llx",
-          (unsigned long long)work);
-    uint8_t *wb = mem_kernel_alloc(work, 0x1000), *event = mem_kernel_alloc(0x100, 64);
-    uint64_t *handle = mem_kernel_alloc(0x40, 64);   // AudioRendererHandle: 16 bytes, passed in x0 and x1
-    uint32_t r = (uint32_t)rt_call(c, stub(SYM_OPEN), 5, (uint64_t)(uintptr_t)handle, (uint64_t)(uintptr_t)event,
-                                   (uint64_t)(uintptr_t)param, (uint64_t)(uintptr_t)wb, work);
-    printf("sdk: OpenAudioRenderer -> %#x, renderers running %ld\n", r, audren_renderers_live());
-    CHECK(!r && handle[0] && audren_renderers_live() == 1, "SDK OpenAudioRenderer %#x", r);
-    if (r) return;
-    uint64_t csize = rt_call(c, stub(SYM_CONFIG_SIZE), 1, (uint64_t)(uintptr_t)param);
-    uint8_t *cbuf = mem_kernel_alloc(csize, 0x1000), *config = mem_kernel_alloc(0x200, 64);
-    rt_call(c, stub(SYM_CONFIG_INIT), 4, (uint64_t)(uintptr_t)config, (uint64_t)(uintptr_t)param,
-            (uint64_t)(uintptr_t)cbuf, csize);
-    rt_call(c, stub(SYM_START), 2, handle[0], handle[1]);
-    uint64_t t0 = 0, t1 = 0;
-    int bad = 0, f0 = 0, f1 = 0;
-    for (int i = 0; i < PROBE_FRAMES; i++) {
-        rt_call(c, stub(SYM_WAIT_EVENT), 1, (uint64_t)(uintptr_t)event);
-        uint64_t now = kern_now_ns();
-        bad += rt_call(c, stub(SYM_UPDATE), 3, handle[0], handle[1], (uint64_t)(uintptr_t)config) != 0;
-        int f = (int)rt_call(c, stub(SYM_FRAMES), 1, (uint64_t)(uintptr_t)config);
-        if (!i) t0 = now, f0 = f;
-        t1 = now, f1 = f;
-        rt_trace = trace;   // the first update is logged, the rest is quiet
-    }
-    double period = (double)(t1 - t0) / (PROBE_FRAMES - 1) / 1e6;
-    printf("sdk: %d x WaitSystemEvent + RequestUpdateAudioRenderer: %d failed, mean period %.3f ms, elapsed frames "
-           "%d -> %d\n", PROBE_FRAMES, bad, period, f0, f1);
-    CHECK(!bad && period > 4.5 && period < 5.5 && f1 - f0 >= PROBE_FRAMES - 4 && f1 - f0 <= PROBE_FRAMES + 2,
-          "SDK render loop");
-    rt_call(c, stub(SYM_STOP), 2, handle[0], handle[1]);
-    rt_call(c, stub(SYM_CLOSE), 2, handle[0], handle[1]);
-    uint64_t requests = (uint64_t)plat_cas64(&g_requests, 0, 0) - requests0;
-    printf("sdk: CloseAudioRenderer: renderers running %ld, sessions released +%llu; %llu requests served for the "
-           "lifted client (sm: kept open by the SDK: %ld session)\n", audren_renderers_live(),
-           (unsigned long long)(ipc_sessions_released() - released0), (unsigned long long)requests,
-           ipc_sessions_live());
-    // The 1.2.1 SDK closes the renderer, device and manager sessions and keeps sm; the 1.4.3 SDK keeps the
-    // audren:u manager it created lazily, beside sm.
-    CHECK(audren_renderers_live() == 0 && ipc_sessions_released() - released0 >= (RT_V143 ? 1u : 3u) &&
-              ipc_sessions_live() == (RT_V143 ? 2 : 1),
-          "SDK CloseAudioRenderer");
-    rt_trace = trace;
-}
+// ---- the game's own nn::audio client would be probed here (TotK's probe called sdk constructors at fixed
+// offsets); Astral Chain's SDK 6.4.0 ctor offsets are not pinned yet, so --probe-ipc covers the raw CMIF client
+// (probe_main) only.
 
 static void guest_main(Cpu *c) {
     probe_main(c);
-    probe_sdk_client(c);
 }
 
 int probe_ipc(void) {

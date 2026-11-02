@@ -32,6 +32,26 @@ __pycache__/
 *.bntx
 *.bnsh
 *.webm
+*.pkz
+*.bk2
+*.bnk
+*.wta
+*.wtp
+*.wtb
+*.bxm
+*.mot
+*.evn
+*.uvd
+*.uid
+*.dtt
+*.bea
+*.wem
+*.pck
+*.vso
+*.pso
+*.cso
+*.hso
+*.dso
 
 # Build outputs
 *.exe
