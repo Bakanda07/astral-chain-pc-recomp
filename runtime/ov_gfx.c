@@ -101,6 +101,13 @@ static void ov_vsync_event(Cpu *c) {
     ret_x(c, 0);
 }
 
+// Result nn::vi::SetLayerScalingMode(Layer *layer, ScalingMode mode): the presentation back end scales
+// by the window size (gfx_window_win.c), so nothing to do beyond the identity check.
+static void ov_layer_scaling_mode(Cpu *c) {
+    if (!vi_up() || arg_p(c, 0) != layer) { ret_x(c, VI_R_INVALID); return; }
+    ret_x(c, 0);
+}
+
 // void *nvnBootstrapLoader(const char *name): the first NVN call
 static void ov_nvn_bootstrap(Cpu *c) {
     const char *name = arg_p(c, 0);
@@ -122,5 +129,6 @@ HOST_OVERRIDE("_ZN2nn2vi10InitializeEv", ov_vi_initialize);
 HOST_OVERRIDE("_ZN2nn2vi18OpenDefaultDisplayEPPNS0_7DisplayE", ov_open_display);
 HOST_OVERRIDE("_ZN2nn2vi11CreateLayerEPPNS0_5LayerEPNS0_7DisplayE", ov_create_layer);
 HOST_OVERRIDE("_ZN2nn2vi15GetNativeWindowEPPvPNS0_5LayerE", ov_native_window);
+HOST_OVERRIDE("_ZN2nn2vi19SetLayerScalingModeEPNS0_5LayerENS0_11ScalingModeE", ov_layer_scaling_mode);
 HOST_OVERRIDE("_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE", ov_vsync_event);
 HOST_OVERRIDE("nvnBootstrapLoader", ov_nvn_bootstrap);

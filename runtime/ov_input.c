@@ -124,6 +124,28 @@ static void ov_controller_support(Cpu *c) {
     ret_x(c, 0);
 }
 
+// Result ShowControllerSupport(const ControllerSupportArg &arg): the one controller is connected and supported;
+// nothing to show.
+static void ov_controller_support_1(Cpu *c) {
+    (void)c;
+    ret_x(c, 0);
+}
+
+// The mouse-style and keyboard-style hosts above; the touch screen is never touched on a PC, so its state is always
+// empty instead of serving the hid shared memory the SDK's own InitializeTouchScreen would map.
+static void ov_initialize_touch(Cpu *c) {
+    (void)c;
+    ret_x(c, 0);
+}
+
+// int GetTouchScreenState<TouchCount>(TouchScreenState<T> *out): no touches.
+static void ov_touch_states(Cpu *c) {
+    uint32_t *out = arg_p(c, 0);
+    if (!out) rt_fatal("nn::hid::GetTouchScreenState: null output");
+    *out = 0;
+    ret_x(c, 0);
+}
+
 static void ov_initialize_mouse(Cpu *c) {
     (void)c;
     plat_mutex_lock(&lock);
@@ -488,8 +510,11 @@ HOST_OVERRIDE("_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE", ov_hold_t
 HOST_OVERRIDE("_ZN2nn3hid14DisconnectNpadERKj", ov_disconnect);
 HOST_OVERRIDE("_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoERKNS0_20ControllerSupportArgE",
               ov_controller_support);
+HOST_OVERRIDE("_ZN2nn3hid21ShowControllerSupportERKNS0_20ControllerSupportArgE", ov_controller_support_1);
 HOST_OVERRIDE("_ZN2nn3hid15InitializeMouseEv", ov_initialize_mouse);
 HOST_OVERRIDE("_ZN2nn3hid18InitializeKeyboardEv", ov_initialize_keyboard);
+HOST_OVERRIDE("_ZN2nn3hid21InitializeTouchScreenEv", ov_initialize_touch);
+HOST_OVERRIDE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", ov_touch_states);
 HOST_OVERRIDE("_ZN2nn3hid14GetMouseStatesEPNS0_10MouseStateEi", ov_mouse_states);
 HOST_OVERRIDE("_ZN2nn3hid16GetKeyboardStateEPNS0_13KeyboardStateE", ov_keyboard_state);
 HOST_OVERRIDE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_"

@@ -1137,6 +1137,32 @@ uint32_t romfs_entry_type(int *out, const char *path) {
     return FS_R_PATH_NOT_FOUND;
 }
 
+// Direct children of the RomFS directory p ("" is the root): add(name, kind, size) for each, in index order. Only the
+// index files are listed; files a mod added under the directory do not appear (Astral Chain enumerates the base RomFS
+// at boot; mods replace or add whole archives by path, not entries).
+void romfs_dir_list(const char *path, int (*add)(const char *name, int kind, uint64_t size, void *ctx), void *ctx) {
+    fs_init();
+    const char *p = romfs_path_relative(mount_name, path);
+    if (!p || !add) return;
+    size_t dn = strlen(p);
+    char last[769];   // one child name: nn::fs caps names at 768 bytes
+    int have = 0;
+    for (uint64_t i = 0; i < file_count; i++) {
+        const char *name = entry_name(entry(i));
+        if (dn && (strncmp(name, p, dn) || name[dn] != '/')) continue;   // not under the directory
+        const char *child = name + (dn ? dn + 1 : 0);
+        const char *slash = strchr(child, '/');
+        size_t cn = slash ? (size_t)(slash - child) : strlen(child);
+        if (cn >= sizeof last) continue;   // over 768 bytes: nn::fs cannot name it
+        if (have && !strncmp(last, child, cn) && !last[cn]) continue;    // same child, already listed
+        memcpy(last, child, cn);
+        last[cn] = 0;
+        have = 1;
+        const Entry e = entry(i);
+        if (!add(last, slash ? PLAT_FS_DIR : PLAT_FS_FILE, slash ? 0 : e.size, ctx)) return;
+    }
+}
+
 // ---- overrides
 // nn::Result nn::fs::MountRom(const char *name, void *cache, size_t cache_size)
 static void ov_mount_rom(Cpu *c) { ret_x(c, romfs_mount(arg_p(c, 0))); }

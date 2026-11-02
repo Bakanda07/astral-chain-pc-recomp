@@ -20,7 +20,7 @@
 #include "vk.h"
 #include "platform/platform.h"
 
-#define SYM_INIT_START "_ZN2nn4init5StartEmmPFvvES2_S2_"
+#define SYM_INIT_START "_ZN2nn4init5StartEmmPFvvES2_"
 #define CTOR_DONE 2                      // a module's constructor flag after its DT_INIT ran the init_array
 
 static volatile int32_t inits_done;
