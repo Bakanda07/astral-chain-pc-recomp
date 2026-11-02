@@ -31,6 +31,7 @@ static Ov ovs[] = {
     // ov_system.c: nn::oe
     {"oe.Initialize", "_ZN2nn2oe10InitializeEv"},
     {"oe.GetDesiredLanguage", "_ZN2nn2oe18GetDesiredLanguageEv"},
+    {"settings.LanguageCode.Make", "_ZN2nn8settings12LanguageCode4MakeENS0_8LanguageE"},
     {"oe.SetPerformanceConfiguration", "_ZN2nn2oe27SetPerformanceConfigurationENS0_15PerformanceModeEi"},
     {"oe.SetCpuBoostMode", "_ZN2nn2oe15SetCpuBoostModeENS0_12CpuBoostModeE"},
     {"oe.GetOperationMode", "_ZN2nn2oe16GetOperationModeEv"},
@@ -279,6 +280,17 @@ static void probe_oe(void) {
     failures += bad > 0;
     printf("oe: language %s by default (en-US locale), %s for this user's locale; %d locale/AC_LANG cases %s\n",
            def, sys, (int)(sizeof cases / sizeof *cases), bad ? "FAILED" : "ok");
+
+    // nn::settings::LanguageCode::Make(index): the code string the game compares with GetDesiredLanguage, ja outside
+    // the enum
+    static const struct { uint32_t lang; const char *want; } codes[] = {
+        {0, "ja"}, {1, "en-US"}, {2, "fr"}, {3, "de"}, {12, "en-GB"}, {15, "zh-Hans"}, {17, "pt-BR"}, {18, "ja"}};
+    for (size_t i = 0; i < sizeof codes / sizeof *codes; i++) {
+        char got[9] = {0};
+        uint64_t v = CALL("settings.LanguageCode.Make", codes[i].lang);
+        memcpy(got, &v, 8);
+        CHECK(!strcmp(got, codes[i].want), "LanguageCode::Make(%u) is '%s', not '%s'", codes[i].lang, got, codes[i].want);
+    }
 
     CALL("oe.Initialize", 0);
     CALL("oe.SetPerformanceConfiguration", 1, 0x92220008);
