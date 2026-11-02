@@ -103,14 +103,14 @@ static const char *pad_label(int p) {
 // The layout the gamepad cells show: the one in effect, or without a gamepad the one the setting names (Xbox for auto).
 static int shown_layout(void) {
     int l = input_pad_layout();
-    return l >= 0 ? l : input_pad_layout_pick(cfg_value("TOTK_PAD_LAYOUT"), 0);
+    return l >= 0 ? l : input_pad_layout_pick(cfg_value("AC_PAD_LAYOUT"), 0);
 }
 
 // Writes the bind_ line of every action whose line for m differs from the one set; a line at the defaults goes away.
 static void write_lines(const InputMap *m) {
     for (int a = 0; a < ACTION_COUNT; a++) {
         char var[40], line[256];
-        snprintf(var, sizeof var, "TOTK_BIND_%s", input_action_name(a));
+        snprintf(var, sizeof var, "AC_BIND_%s", input_action_name(a));
         input_map_line(m, a, line, sizeof line);
         const char *now = cfg_get(var);
         if (!strcmp(line, now ? now : "")) continue;

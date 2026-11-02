@@ -456,7 +456,7 @@ int opt_bind_row(const char *key, const char *label, UiTextId desc, const char *
         ImGui::PopID();
     }
     char k[64];
-    snprintf(k, sizeof k, "TOTK_%s", key);
+    snprintf(k, sizeof k, "AC_%s", key);
     if (row_foc) desc_set(g_focus, menu_text(desc), k, NULL, NULL);
     if (row_hov) desc_set(g_hover, menu_text(desc), k, NULL, NULL);
     if (!g_first.text[0]) desc_set(g_first, menu_text(desc), k, NULL, NULL);

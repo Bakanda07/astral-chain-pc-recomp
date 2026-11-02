@@ -288,7 +288,7 @@ static void init_paths(void *param) {
         for (char *cut = plat_last_sep(exe); cut; cut = plat_last_sep(exe)) {
             *cut = 0;
             char probe[PATH_CAP + 32];
-            snprintf(probe, sizeof probe, "%s/build/xlate/totk_xlate" PLAT_EXE_SUFFIX, exe);
+            snprintf(probe, sizeof probe, "%s/build/xlate/ac_xlate" PLAT_EXE_SUFFIX, exe);
             if (file_exists(probe)) {
                 strcpy(root, exe);
                 break;
@@ -297,10 +297,10 @@ static void init_paths(void *param) {
     }
     const char *xlate_cfg = cfg_get("AC_XLATE"), *cache_cfg = cfg_get("AC_SHADER_CACHE");
     char beside[PATH_CAP + 32];   // a packaged folder (tools/package_build.py) keeps the translator next to totk.exe
-    if (exe_dir[0]) snprintf(beside, sizeof beside, "%s/totk_xlate" PLAT_EXE_SUFFIX, exe_dir);
+    if (exe_dir[0]) snprintf(beside, sizeof beside, "%s/ac_xlate" PLAT_EXE_SUFFIX, exe_dir);
     if (xlate_cfg && *xlate_cfg && strlen(xlate_cfg) < sizeof xlate_exe) strcpy(xlate_exe, xlate_cfg);
     else if (exe_dir[0] && file_exists(beside)) strcpy(xlate_exe, beside);
-    else if (root[0]) snprintf(xlate_exe, sizeof xlate_exe, "%s/build/xlate/totk_xlate" PLAT_EXE_SUFFIX, root);
+    else if (root[0]) snprintf(xlate_exe, sizeof xlate_exe, "%s/build/xlate/ac_xlate" PLAT_EXE_SUFFIX, root);
     if (cache_cfg && *cache_cfg && strlen(cache_cfg) < sizeof cache_dir) strcpy(cache_dir, cache_cfg);
     else if (exe_dir[0]) snprintf(cache_dir, sizeof cache_dir, "%s/shader-cache", exe_dir);
     xlate_identity();
@@ -1656,13 +1656,13 @@ void gfx_shader_local_size(const GfxShader *s, uint32_t local[3]) { memcpy(local
 // census) does not match the keys play asks for. Every (program, answers) that a gfx_shader_get* call resolves is
 // recorded next to pipeline-keys.bin, so the first-start preparation (Task 2.6, here the AC_TEST_PREPARE_SHADERS hook)
 // translates exactly the variants play needs, from these files alone:
-//   shader-answers.bin  "TOTKSANS", version, record size; records: stage (u32), code hash, input id, pack_answers bytes
+//   shader-answers.bin  "ACSANS", version, record size; records: stage (u32), code hash, input id, pack_answers bytes
 //                       of the full answers, zero padding. One record per input id: answers outside the shader's use
 //                       mask do not change its SPIR-V, are out of its input id and cache key (mask_answers) and so do
 //                       not make records of their own (a fight run meets 4126 full pairs, 1238 input ids). The full
 //                       answers are kept so a translator with a wider mask still gets them. Under a new translator
 //                       the masks, hence the input ids, are new, and play appends records for them.
-//   shader-programs.bin "TOTKSPRG", version, 0; records: stage, length, c1 length (u32 each), code hash, control section,
+//   shader-programs.bin "ACSPRG", version, 0; records: stage, length, c1 length (u32 each), code hash, control section,
 //                       code[length], c1. One per code hash; written before the answers that name it. Game content:
 //                       it stays in the ignored pipeline cache directory.
 // A file with another header is rewritten; a torn tail (killed process) is cut off at open.
@@ -1745,7 +1745,7 @@ static int rec_read(const char *path, const char *magic, uint32_t version, uint3
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    int ok = len >= (long)sizeof h && fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, magic, 8) &&
+    int ok = len >= (long)sizeof h && fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, magic, strlen(magic)) &&
              h.version == version && h.rec_size == rec_size;
     if (ok && len > (long)sizeof h) {
         *n = (size_t)len - sizeof h;
@@ -1790,12 +1790,12 @@ void gfx_shader_record_at(const char *keys_path) {
     snprintf(RC.prg_path, sizeof RC.prg_path, "%.*sshader-programs.bin", dir, keys_path);
     uint8_t *b;
     size_t n;
-    if (rec_read(RC.ans_path, "TOTKSANS", ANS_VERSION, ANS_REC, &b, &n)) {
+    if (rec_read(RC.ans_path, "ACSANS", ANS_VERSION, ANS_REC, &b, &n)) {
         for (size_t o = 0; o + ANS_REC <= n; o += ANS_REC) set_add(&RC.pairs, hash8(b + o + 36));
         if (n % ANS_REC) truncate_to(RC.ans_path, sizeof(RecHeader) + n / ANS_REC * ANS_REC);
     }
     free(b);
-    if (rec_read(RC.prg_path, "TOTKSPRG", PRG_VERSION, 0, &b, &n)) {
+    if (rec_read(RC.prg_path, "ACSPRG", PRG_VERSION, 0, &b, &n)) {
         size_t whole = prg_walk(b, n, prg_seen, &RC.progs);
         if (whole != n) truncate_to(RC.prg_path, sizeof(RecHeader) + whole);
     }
@@ -1836,7 +1836,7 @@ static int rec_append(const char *path, const char *magic, uint32_t version, uin
     int ok = 1;
     if (ftell(f) == 0) {
         RecHeader h = {{0}, version, rec_size};
-        memcpy(h.magic, magic, 8);
+        memcpy(h.magic, magic, strlen(magic));
         ok = fwrite(&h, sizeof h, 1, f) == 1;
     }
     ok = ok && fwrite(b->p, 1, b->n, f) == b->n;
@@ -1857,8 +1857,8 @@ void gfx_shader_record_flush(int force) {
     RC.ans = (Bytes){0}, RC.prg = (Bytes){0};
     uint64_t total = RC.pairs.n, added = RC.pairs_new;
     plat_mutex_unlock(&RC.lock);
-    if (prg.n && !rec_append(RC.prg_path, "TOTKSPRG", PRG_VERSION, 0, &prg)) rt_log("gfx_shader: cannot write %s", RC.prg_path);
-    if (ans.n && !rec_append(RC.ans_path, "TOTKSANS", ANS_VERSION, ANS_REC, &ans)) rt_log("gfx_shader: cannot write %s", RC.ans_path);
+    if (prg.n && !rec_append(RC.prg_path, "ACSPRG", PRG_VERSION, 0, &prg)) rt_log("gfx_shader: cannot write %s", RC.prg_path);
+    if (ans.n && !rec_append(RC.ans_path, "ACSANS", ANS_VERSION, ANS_REC, &ans)) rt_log("gfx_shader: cannot write %s", RC.ans_path);
     plat_mutex_unlock(&rec_io);
     if (ans.n) rt_log("gfx_shader: answers: %zu new records appended (%llu new this run, %llu recorded)", ans.n / ANS_REC,
                       (unsigned long long)added, (unsigned long long)total);
@@ -1920,8 +1920,8 @@ static long long prepare_files(const char *ans_path, const char *prg_path, int t
     double t0 = (double)plat_now_ms();
     uint8_t *ab = NULL, *pb = NULL;
     size_t an = 0, pn = 0;
-    if (!rec_read(ans_path, "TOTKSANS", ANS_VERSION, ANS_REC, &ab, &an) ||
-        !rec_read(prg_path, "TOTKSPRG", PRG_VERSION, 0, &pb, &pn)) {
+    if (!rec_read(ans_path, "ACSANS", ANS_VERSION, ANS_REC, &ab, &an) ||
+        !rec_read(prg_path, "ACSPRG", PRG_VERSION, 0, &pb, &pn)) {
         rt_log("gfx_shader: prepare: no %s (%s)", what, ans_path);
         free(ab), free(pb);
         return -1;
@@ -1991,7 +1991,7 @@ int gfx_shader_prepare_seed(const char *dir, int threads, int procs) {
         by[r[1]]++, stages[r[0]]++, u++;
     }
     free(seen.v);
-    RecHeader h = {{'T', 'O', 'T', 'K', 'S', 'P', 'R', 'P'}, PRP_VERSION, PRP_REC};
+    RecHeader h = {{'A', 'C', 'S', 'P', 'R', 'P'}, PRP_VERSION, PRP_REC};
     uint8_t *file = recs ? malloc(sizeof h + u * PRP_REC + 1) : NULL;
     int ok = file != NULL;
     if (ok) {
@@ -2021,7 +2021,7 @@ size_t gfx_shader_warm_list(GfxWarmEnt **out) {
     uint8_t *ab = NULL, *pb = NULL;
     size_t an = 0, pn = 0;
     plat_mutex_lock(&rec_io);                      // no append meanwhile
-    rec_read(RC.ans_path, "TOTKSANS", ANS_VERSION, ANS_REC, &ab, &an);
+    rec_read(RC.ans_path, "ACSANS", ANS_VERSION, ANS_REC, &ab, &an);
     plat_mutex_unlock(&rec_io);
     rec_read(prp, "ACSPRP", PRP_VERSION, PRP_REC, &pb, &pn);
     size_t na = an / ANS_REC, np = pn / PRP_REC, n = 0;
