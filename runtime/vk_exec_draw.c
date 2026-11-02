@@ -1805,6 +1805,10 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
         }
         nd += cnt;
     }
+    // A fragment set with no bindings (a vertex-only pipeline) starts no binding in the loop above, so its first
+    // descriptor is the one past the last: without this, set 0's push size reads as 0 and a set whose update template
+    // still expects its descriptors is pushed with nothing (the driver then reads whatever follows the packet).
+    if (n_sets == 2 && lo[1] == info->n_bindings) d0[1] = nd;
     // Under the validation layer, a new graphics layout binds set 1 before set 0 is pushed or bound. The layer (SDK
     // 1.4.363, PipelineLayoutCompatDef::operator==) takes any two INDEPENDENT_SETS layouts as compatible, so
     // vkCmdPushDescriptorSetKHR keeps the push set it made for an earlier layout and drops writes to bindings that
