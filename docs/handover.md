@@ -51,8 +51,8 @@ Working:
 
 Not working / not verified:
 
-- **No sound.** `audout:u` returns `ListAudioOuts = 0` and `OpenAudioOut = 0xE401`; the game continues without a
-  device. `hwopus` only answers `GetWorkBufferSize`.
+- Sound: `audout:u` and `hwopus` are implemented (section 6); music and SFX play. The `hwopus` decode path is
+  implemented but the game has not opened a decoder yet, so voices are untested.
 - Full save-data service: `fsp-srv` only has the access-log commands; `CommitSaveData` is handled by the host override
   in `runtime/fs_host.c`. This is enough for the current New Game flow but not a complete `IFileSystem` service.
 - End-to-end gameplay is not visually verified beyond the early New Game sequence. The last scripted New Game run
@@ -237,19 +237,31 @@ These were each a crash/hang and are now part of the boot path:
 
 ---
 
-## 6. Priority 1 — sound
+## 6. Priority 1 — sound (done)
 
-### 6.1 What is happening now
+### 6.0 State
 
-The game opens `audout:u` (legacy `nn::audio` output) and calls `OpenAudioOut`. The current handler returns:
+`audout:u` and `hwopus` are implemented; the game has music, SFX and voice output. `runtime/ov_audout.c` serves the
+manager and the full `IAudioOut` command set (state, start/stop, append, buffer event, released buffers, buffer count,
+played samples, flush, volume) and plays the guest's PCM16 through an SDL3 stream: a lock-free ring filled by the IPC
+handlers and drained by SDL's audio thread, with the buffer event signalled as each buffer's samples leave the ring.
+`runtime/ov_hwopus.c` serves the manager and the decoder, decoding Nintendo's big-endian Opus frame header with libopus.
+Measured: 4 buffers of 1024 frames in flight, about 80 ms in the ring, appends and releases 1:1, no overruns.
+
+The notes below are what was learned on the way and still describe the contracts; read them before changing either
+service.
+
+### 6.1 What was happening
+
+The game opens `audout:u` (legacy `nn::audio` output) and calls `OpenAudioOut`. The old handler returned:
 
 ```c
 case 0: n = 0; IPC_OUT(rs, n); return;      // ListAudioOuts
 case 1: rs->result = 0xE401; return;        // OpenAudioOut
 ```
 
-The SDK treats that as "no output device" and the game continues silently. `audren:u` is a separate, fully working
-renderer used by other titles; this game's first audio path is legacy audout.
+The SDK treats that as "no output device" and the game ran silently, retrying `OpenAudioOut` about once a second.
+`audren:u` is a separate renderer that this game never opens (only its `IAudioDevice` for the master volume).
 
 `hwopus` is also incomplete: it only implements command 1. The SDK's `nn::codec::HardwareOpusDecoder` uses it for
 compressed voices; if the game opens a decoder, it will hit an unimplemented command.
@@ -679,15 +691,15 @@ Run these after each significant change:
 
 ## 13. Next steps, in order
 
-1. Implement `audout:u` `ListAudioOuts`/`OpenAudioOut` and the full `IAudioOut` session (section 6.3-6.4), backed by
-   the existing mixer or a small shared PCM output.
-2. Implement `hwopus` manager/decoder commands and reuse libopus (section 6.5). Test music, SFX and voices.
-3. Add the AOT shader preparation path: `AC_TEST_PREPARE_SHADERS=1` first, then a `seed-answers`/`seed-programs`
+1. ~~Implement `audout:u` and `hwopus`.~~ Done (section 6). Music, SFX and voice decoding are in place; the game opens
+   `hwopus` only for `GetWorkBufferSize` today, so the decoder command path is implemented but not yet exercised by
+   play. Check it the first time voices appear (`AC_TRACE=audio` logs the first decode's buffer layout).
+2. Add the AOT shader preparation path: `AC_TEST_PREPARE_SHADERS=1` first, then a `seed-answers`/`seed-programs`
    generator (recorded-play conversion is the shortest correct route), then `--prepare-shaders` + `--warm-shaders`.
    Measure with the overlay and `AC_TRACE=perf`.
-4. Verify a clean New Game run visually and for a longer slice; fix the next missing service or render issue that
+3. Verify a clean New Game run visually and for a longer slice; fix the next missing service or render issue that
    appears. Full `fsp-srv`/`IFileSystem` is the likely next service after audio.
-5. Clean any temporary logging added during this work, regenerate with `--patches`, rebuild, re-run the checklist,
+4. Clean any temporary logging added during this work, regenerate with `--patches`, rebuild, re-run the checklist,
    then ask the user to commit (content check first).
 
 ---

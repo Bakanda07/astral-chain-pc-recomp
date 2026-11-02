@@ -186,3 +186,5 @@ void audio_mixer_render(AudioRenderer *r, double seconds);   // after audio_voic
 int64_t audio_mixer_pace_ns(AudioRenderer *r, uint64_t now);
 int audio_buffer_empty(const AudrenWaveBuffer *b);   // no samples to decode: played as soon as it is reached
 void audio_device_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs);   // IAudioDevice
+// The master output volume the game set through IAudioDevice::SetAudioDeviceOutputVolume, 1.0 until it does.
+float audio_device_volume(void);

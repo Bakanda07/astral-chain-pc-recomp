@@ -68,6 +68,8 @@ typedef struct Mixer {
 
 static _Atomic float device_volume = 1.0f;
 
+float audio_device_volume(void) { return atomic_load(&device_volume); }
+
 // AC_VOLUME: the player's volume in percent (0..100) on top of the game's own; a live setting (the
 // menu), parsed again when cfg_version changes. Render thread only.
 static float host_volume(void) {
