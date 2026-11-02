@@ -201,8 +201,7 @@ class App:
         grid = ttk.Frame(f)
         grid.pack(fill='x')
         grid.columnconfigure(1, weight=1)
-        rows = (('base', 'ui.base', 'ui.pick_game'), ('update', 'ui.update', 'ui.pick_update'),
-                ('keys', 'ui.keys', 'ui.pick_keys'))
+        rows = (('base', 'ui.base', 'ui.pick_game'), ('keys', 'ui.keys', 'ui.pick_keys'))
         self.form_rows = {}
         for i, (name, label_id, pick_id) in enumerate(rows):
             lab = self.label(grid, label_id)
@@ -212,10 +211,6 @@ class App:
             b.grid(row=i, column=2, padx=(8, 0))
             self.form_rows[name] = lab
         i = len(rows)
-        self.label(grid, 'ui.firmware').grid(row=i, column=0, sticky='w', pady=4)
-        ttk.Entry(grid, textvariable=self.vars['firmware']).grid(row=i, column=1, sticky='ew', pady=4)
-        self.button(grid, 'ui.browse', self.pick_firmware).grid(row=i, column=2, padx=(8, 0))
-        i += 1
         self.label(grid, 'ui.game_language').grid(row=i, column=0, sticky='w', pady=4)
         self.lang_box = ttk.Combobox(grid, textvariable=self.vars['lang'], state='readonly', width=30)
         self.lang_box.grid(row=i, column=1, sticky='w', pady=4)
@@ -225,7 +220,6 @@ class App:
         self.label(grid, 'ui.dest').grid(row=i + 1, column=0, sticky='w', pady=4)
         ttk.Entry(grid, textvariable=self.vars['dest']).grid(row=i + 1, column=1, sticky='ew', pady=4)
         self.button(grid, 'ui.browse', self.pick_dest).grid(row=i + 1, column=2, padx=(8, 0))
-        self.label(f, 'ui.firmware_help', wraplength=620, justify='left').pack(anchor='w', pady=(8, 0))
         self.update_hint = ttk.Label(f, wraplength=620, justify='left')
         self.update_hint.pack(anchor='w', pady=(8, 0))
         self.form_error = ttk.Label(f, style='Err.TLabel', wraplength=620, justify='left')
@@ -304,18 +298,11 @@ class App:
 
     def pick_file(self, name, pick_id):
         types = [(self.cat('ui.type_game'), '*.nsp *.xci'), (self.cat('ui.type_all'), '*.*')]
-        if name == 'update':
-            types = [(self.cat('ui.type_nsp'), '*.nsp'), (self.cat('ui.type_all'), '*.*')]
         if name == 'keys':
             types = [(self.cat('ui.type_keys'), '*.keys'), (self.cat('ui.type_all'), '*.*')]
         path = filedialog.askopenfilename(title=self.cat(pick_id), filetypes=types)
         if path:
             self.vars[name].set(os.path.normpath(path))
-
-    def pick_firmware(self):
-        path = filedialog.askdirectory(title=self.cat('ui.pick_firmware'), mustexist=True)
-        if path:
-            self.vars['firmware'].set(os.path.normpath(path))
 
     def pick_dest(self):
         path = filedialog.askdirectory(title=self.cat('ui.pick_dest'), mustexist=False)

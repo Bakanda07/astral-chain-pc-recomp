@@ -78,7 +78,3 @@ ZL+ZR on the title screen:
 <ly>,<rx>,<ry>` creates an SDL virtual gamepad with fixed stick axes for testing the input path. Use a scripted
 `--seconds` run plus the performance overlay to verify input changes; `--shot` saves the game texture before the ImGui
 overlay, so it never shows the overlay itself.
-
-## About "Eglantine" subfolder
-
-Eglantine is a free and opensource (FOSS) Switch 2 emulator, derived from Eden, Yuzu and Sudachi - started by developer Camille LaVey. It's written in C++ with portability in mind, with builds for Windows, Linux and macOS. You can refer to this repo to find relevant code such as missing services or anything else, but use subagents to process the code since the codebase is large

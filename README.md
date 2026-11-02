@@ -1,43 +1,56 @@
 # Astral Chain Recomp
 
-**Astral Chain Recomp** is a static recompilation of *Astral Chain* (Nintendo Switch, 2019) into a native x86-64 application for Windows, built on the pipeline of TotK Recomp ([docs/architecture.md](docs/architecture.md), [docs/astral-chain.md](docs/astral-chain.md)).
+**Astral Chain Recomp** is a static recompilation of *Astral Chain* (Nintendo Switch, 2019) into a native x86-64
+application for Windows, built on the pipeline of [TotK Recomp](https://github.com/valentderah/totk-pc-recomp)
+([docs/architecture.md](docs/architecture.md), [docs/astral-chain.md](docs/astral-chain.md)).
 
 > [!IMPORTANT]
-> **No game files are included.** You need your own legally obtained copy of *Astral Chain*, dumped from your own console: the base game. Instructions for obtaining those files will not be provided.
+> **No game files are included.** You need your own legally obtained copy of *Astral Chain*, dumped from your own
+> console: the base game, version 1.0.0. Instructions for obtaining those files will not be provided.
 >
-> The game is built from your files on your machine, so the result contains the game. It is for your own use. Do not share it.
+> The game is built from your files on your machine, so the result contains the game. It is for your own use. Do not
+> share it.
 
 ## Status
 
-Very early development: the port boots the base game (1.0.0); rendering and playability are still in progress. The
-current milestone is reaching the title screen.
+The game is playable from the title screen through the story, including its audio and its save data.
 
 Report problems as issues, following [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Features today
+## Features
 
 - Native code, not emulation
-- Base game 1.0.0
+- Base game 1.0.0 only
+- The game's own audio: music, effects and voices, through an SDL 3 device
+- Save data on the host disk, committed transactionally
+- Custom resolutions, AMD FSR 1 upscaling and a 1062p mode that pins the scene above the game's 1600x900
+- Anisotropic texture filtering up to 16x, for sharp ground into the distance
+- In-game settings menu (F1) and performance overlay (F10)
+- Setup and in-game menu in English, Russian, Brazilian Portuguese and Simplified Chinese
+- Keyboard, mouse and gamepad, with remapping, rumble and gyro
+- Xbox button prompts, with either button layout
+- Mods and data cheats from the emulator formats
 
 ## Planned
 
-- In-game play
 - The 1.0.1 update
 - 60 fps and higher frame-rate limits
-- Custom resolutions, supersampling and upscaling
-- Settings menu, performance overlay, input remapping
 - Shaders prepared at install instead of during play
+- Setup and installer
 
 ## Installing
 
-Not yet: the setup and installer come after the title-screen milestone. Until then, build from source
+Not yet: the setup and installer come later. Until then, build from source
 ([docs/building.md](docs/building.md)).
 
 ## Credits
 
-Astral Chain Recomp builds on the projects below. What was taken from each, with its license, is listed in
+Astral Chain Recomp builds on the pipeline of [TotK Recomp](https://github.com/valentderah/totk-pc-recomp), which
+supplied the lifter, the runtime, the graphics translation, the installer and most of the documentation this port
+started from. What was taken from each project, with its license, is listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+- [TotK Recomp](https://github.com/valentderah/totk-pc-recomp)
 - [LAS Recomp](https://github.com/peiikai/LASRecomp)
 - [MacNativeGames](https://github.com/ly05010419/MacNativeGames)
 - [nxnative](https://github.com/seedds/nxnative)

@@ -6,30 +6,33 @@ content rules.
 
 Current git state when this note was written:
 
-- `HEAD` = `8a0b7f1` ("Add fsp-srv access-log replies and the command buffer fence sync so starting from the title
-  screen reaches the menu").
-- Uncommitted: `AGENTS.md` (the controller section) and `runtime/ov_system.c` (`nn::pl::GetSharedFont`).
-- Untracked: `Eglantine/` (read-only reference emulator) and `docs/handover.md` (this file).
-- The user manages git. Do not commit `Eglantine/`, `build/`, `generated/` or `docs/handover.md` unless the user asks.
+- `HEAD` = `52d4898`.
+- Working tree clean. `docs/handover.md` is tracked.
+- Untracked: `Eglantine/` (read-only reference emulator, never commit it).
+- The user manages git. Do not commit `Eglantine/`, `build/` or `generated/`.
 - Run `python tools/check_content.py --staged` before proposing any commit. Silent = OK.
 
 ---
 
-## 0. Priorities for this handover
+## 0. Reste à faire (RAF)
 
-1. **Fix sound (priority 1).** The game currently runs silently because `audout:u` reports no output device. The
-   `audren:u` renderer already has a full SDL3 mixer; `audout:u` and `hwopus` need their real implementations.
-2. **AOT shaders (priority 2).** The translator and on-demand cache work, but a clean build still translates shaders
-   during play. The runtime already records exactly the variants play needs and has a preparation hook; use it and
-   implement/port the missing seed tooling.
+1. **AOT shaders (priority 1).** The translator and the on-demand cache work, but a clean build still translates
+   shaders during play. The runtime already records exactly the variants play needs and has a preparation hook; use it
+   and implement/port the missing seed tooling. Details in section 6.
+2. **Full `fsp-srv` save data.** `runtime/ov_fsp.c` only answers the access-log commands; `CommitSaveData` is handled by
+   the host override in `runtime/fs_host.c`. That is enough for the current New Game flow but not a complete
+   `IFileSystem` service. Details in section 7.
+3. **Longer gameplay coverage.** End-to-end play is not verified beyond the early New Game sequence and the load-data
+   screen. Run further, fix the next missing service or render issue that appears, and keep a representative slice in
+   the regression runs.
+4. **Support work, in this order:** `nfp:user`/amiibo, `account`/`friends` commands a longer run reaches, `prepo:u` and
+   `nifm:u` kept local, shared system fonts.
 
-Everything else (full save service, amiibo, more gameplay coverage) is support work for running the game end to end.
 The user explicitly asked for real implementations, not lazy success stubs, for every service the game needs.
 
 Definition of done for this handover:
 
-- The title screen and menu are still reached, with the same controller flow.
-- Music/SFX/voices are audible, buffers are recycled correctly, and no audio service fatal appears.
+- The title screen, the menu and New Game are still reached, with the same controller flow.
 - A fresh build folder can run with the shader cache prepared ahead of time and does not compile shaders during the
   first minutes of play.
 - `--seconds` runs still complete without a fatal, and `tools/check_content.py --staged` passes.
@@ -43,7 +46,7 @@ Working:
 - Boot through `nn::init::Start`, all module constructors, the entry point and the first NVN calls.
 - RomFS mount, directory enumeration, `root.pkz`, all `st*.pkz`, `ui`, `um`, `wet`, `wp`, `core`, sound archives.
 - Shader lookup in `shader2.dat`, VSO/PSO validation and translation (once `build/xlate/ac_xlate.exe` exists).
-- Title screen, `ZL + ZR` prompt, title menu, New Game, save mount/unmount; controller input.
+- Title screen, `ZL + ZR` prompt, title menu, New Game, save mount/unmount, the load-data screen; controller input.
 - Vulkan rendering: 1600x900, 30 fps present loop, 26 clears/frame, ~100-130 draws/frame in the menu/early game,
   no validation errors, no shader failures in the last runs.
 - Performance overlay (already adapted from TotK): `AC_PERF_OVERLAY=fps|full`, F10 / L3+R3.
@@ -51,13 +54,10 @@ Working:
 
 Not working / not verified:
 
-- Sound: `audout:u` and `hwopus` are implemented (section 6); music and SFX play. The `hwopus` decode path is
-  implemented but the game has not opened a decoder yet, so voices are untested.
 - Full save-data service: `fsp-srv` only has the access-log commands; `CommitSaveData` is handled by the host override
   in `runtime/fs_host.c`. This is enough for the current New Game flow but not a complete `IFileSystem` service.
-- End-to-end gameplay is not visually verified beyond the early New Game sequence. The last scripted New Game run
-  lasted 45 s (1351 frames, no fatal) and exercised the save system; the requested gameplay screenshot was never
-  captured because the run was stopped.
+- End-to-end gameplay is not visually verified beyond the early New Game sequence and the load-data screen. The last
+  scripted New Game run lasted 45 s (1351 frames, no fatal) and exercised the save system.
 - No shared system fonts are present in the workspace. `nn::pl::GetSharedFont` is implemented and skips missing
   types; the game's own UI fonts still render. Put extracted `.bfttf` files in `AC_SHARED_FONTS` or
   `<romfs>/../../firmware/shared-fonts` if Chinese/Korean/system-font UI is needed.
@@ -171,15 +171,6 @@ Important build facts:
 - `runtime/vk_pipeline.c` — pipeline cache, keys, prewarm, AOT preparation, library builds.
 - `runtime/vk_texture.c` / `vk_astc.c` — ASTC upload/native sampling and compute decode.
 
-### Audio
-
-- `runtime/audren.c` — full `audren:u` renderer service (RequestUpdate, voices, mixes, sinks, events).
-- `runtime/audio_mixer.c` — the real mixer behind `audren:u`, SDL3 playback, IAudioDevice, effects, resampling.
-- `runtime/ov_audout.c` — **legacy `audout:u`; currently a no-device stub. This is priority 1.**
-- `runtime/ov_hwopus.c` — `hwopus` service; currently only `GetWorkBufferSize`.
-- `runtime/ov_media.c` — direct `nn::codec` host override path, with libopus decoding, used by older imports. It is
-  not what this SDK's `HardwareOpusDecoder` uses (that opens `hwopus` over IPC).
-
 ### Input / UI
 
 - `runtime/input.c` — SDL3 gamepad, keyboard, mouse, scripted input, recording, virtual pad.
@@ -224,248 +215,20 @@ These were each a crash/hang and are now part of the boot path:
    token; `SwitchToFiber` treats it as "back to the thread context". Do not return 0.
 8. **HID singular calls.** The game imports singular `GetNpadState`; the SDK's plural function is not intercepted.
    `runtime/ov_input.c` overrides both forms.
-9. **`hwopus` work-size.** The SDK's `HardwareOpusDecoder` constructor opens `hwopus`; command 1 must return a size
-   (currently 0x9000) before any decoder command.
-10. **Start-up service chain.** `nifm::Initialize` must return success (host override); account `OpenUser` /
-    `OpenPreselectedUser` return a **Result** (0 = success), while `TryOpenPreselectedUser` returns a bool;
-    `friends::UserPresence::Initialize` and `fs::EnsureSaveData` are host-overridden; `fsp-srv` 1005 must return
-    success with mode 0 or `IsEnabledAccessLog` aborts.
-11. **`pl:u` shared fonts.** `nn::pl::GetSharedFont` is filled directly from `.bfttf` files; missing files are skipped
+9. **Start-up service chain.** `nifm::Initialize` must return success (host override); account `OpenUser` /
+   `OpenPreselectedUser` return a **Result** (0 = success), while `TryOpenPreselectedUser` returns a bool;
+   `friends::UserPresence::Initialize` and `fs::EnsureSaveData` are host-overridden; `fsp-srv` 1005 must return
+   success with mode 0 or `IsEnabledAccessLog` aborts.
+10. **`pl:u` shared fonts.** `nn::pl::GetSharedFont` is filled directly from `.bfttf` files; missing files are skipped
     with count 0. `GetSharedFontAddress` / `Size` fail loudly if a present file is damaged.
-12. **Title-to-menu.** `fsp-srv` access-log commands and `nvnCommandBufferFenceSync` are what let the `ZL+ZR` menu
+11. **Title-to-menu.** `fsp-srv` access-log commands and `nvnCommandBufferFenceSync` are what let the `ZL+ZR` menu
     transition finish.
 
 ---
 
-## 6. Priority 1 — sound (done)
+## 6. Priority 1 — AOT shaders
 
-### 6.0 State
-
-`audout:u` and `hwopus` are implemented; the game has music, SFX and voice output. `runtime/ov_audout.c` serves the
-manager and the full `IAudioOut` command set (state, start/stop, append, buffer event, released buffers, buffer count,
-played samples, flush, volume) and plays the guest's PCM16 through an SDL3 stream: a lock-free ring filled by the IPC
-handlers and drained by SDL's audio thread, with the buffer event signalled as each buffer's samples leave the ring.
-`runtime/ov_hwopus.c` serves the manager and the decoder, decoding Nintendo's big-endian Opus frame header with libopus.
-Measured: 4 buffers of 1024 frames in flight, about 80 ms in the ring, appends and releases 1:1, no overruns.
-
-The notes below are what was learned on the way and still describe the contracts; read them before changing either
-service.
-
-### 6.1 What was happening
-
-The game opens `audout:u` (legacy `nn::audio` output) and calls `OpenAudioOut`. The old handler returned:
-
-```c
-case 0: n = 0; IPC_OUT(rs, n); return;      // ListAudioOuts
-case 1: rs->result = 0xE401; return;        // OpenAudioOut
-```
-
-The SDK treats that as "no output device" and the game ran silently, retrying `OpenAudioOut` about once a second.
-`audren:u` is a separate renderer that this game never opens (only its `IAudioDevice` for the master volume).
-
-`hwopus` is also incomplete: it only implements command 1. The SDK's `nn::codec::HardwareOpusDecoder` uses it for
-compressed voices; if the game opens a decoder, it will hit an unimplemented command.
-
-### 6.2 Existing audio infrastructure to reuse
-
-`runtime/audren.c` + `runtime/audio_mixer.c` already provide:
-
-- A real mixer with 48 kHz stereo SDL3 output (`SDL_OpenAudioDeviceStream`, `SDL_AUDIO_S16`/float conversion).
-- Voice sample decoding (including Opus through `ov_media.c`/libopus where used), resampling, biquads, mixes,
-  effects, splitters, sinks and device pacing.
-- `IAudioDevice` commands (`ListAudioDeviceName`, volume, active device, system events).
-
-You can either:
-
-**A. Reuse the mixer's output ring.** Expose a small shared "PCM output" object from `audio_mixer.c` (a stereo
-S16/F32 ring plus a device stream) and let `audout` append guest PCM into it. This avoids a second SDL device and
-shares pacing. It requires a small refactor because the current `Mixer` is private to `AudioRenderer`.
-
-**B. Give `IAudioOut` its own SDL stream.** Simpler to isolate, but coordinate with `audio_mixer.c`: its
-`audio_mixer_close` calls `SDL_QuitSubSystem(SDL_INIT_AUDIO)`, and two independent streams/subsystems can fight over
-device lifetime. SDL's subsystem init is reference-counted, but the close path still needs care.
-
-Given the "performance first" rule and the existing mixer, **A is preferred** once the shared ring is small and
-lock-free enough. Do not allocate per buffer or per audio callback.
-
-### 6.3 `audout:u` wire contract
-
-Manager service `audout:u` (Eglantine `Service::Audio::IAudioOutManager`, current SDK layout):
-
-| Cmd | Name | Input | Output |
-|---|---|---|---|
-| 0 | `ListAudioOuts` | output name buffer (map alias), count out | one `AudioDeviceName` ("DeviceOut") + `u32 count` |
-| 1 | `OpenAudioOut` | in name buffer, `AudioOutParameter` (8 bytes), copy handle, aruid | `AudioOutParameterInternal` (0x10), out session object, out name buffer |
-| 2 | `ListAudioOutsAuto` | same with auto-select | same |
-| 3 | `OpenAudioOutAuto` | same with auto-select | same |
-
-`AudioDeviceName` is a 0x100-byte fixed name buffer. `AudioOutParameter`:
-
-```c
-struct AudioOutParameter { s32 sample_rate; u16 channel_count; u16 reserved; }; // 8 bytes
-```
-
-`AudioOutParameterInternal` (response):
-
-```c
-struct AudioOutParameterInternal { u32 sample_rate; u32 channel_count; u32 sample_format; u32 state; }; // 0x10
-```
-
-`OpenAudioOut` observations from this game:
-
-- Input raw data: `0x0000bb80` (48000), `0xCAFE0002` (low 16 bits channel count 2; high bits SDK magic),
-  a 0x100-byte empty device name.
-- The out object is a **move handle** (`rs->move[rs->nmove++] = session_handle`), not `IPC_OUT(handle)`.
-  `IPC_OUT` caused a null dereference in `nn::audio::OpenDefaultAudioOut`.
-- Returning a session **before** the full `IAudioOut` command set is implemented is what crashed
-  `OpenDefaultAudioOut`; do not half-open it again. Implement the object first, then open it.
-- The game may call `OpenAudioOut` more than once; keep the manager state and session count sane.
-
-`IAudioOut` commands (standard SDK 6.4 layout; verify with `AC_TRACE=ipc` logs if a command id differs):
-
-| Cmd | Name | Input | Output |
-|---|---|---|---|
-| 0 | `GetAudioOutState` | none | `u32 state` (0 Started, 1 Stopped) |
-| 1 | `Start` | none | none |
-| 2 | `Stop` | none | none |
-| 3 | `AppendAudioOutBuffer` | one `AudioOutBuffer` (0x28) in an A buffer; `u64 buffer_client_ptr` tag | none |
-| 4 | `RegisterBufferEvent` | none | readable event handle (copy) |
-| 5 | `GetReleasedAudioOutBuffers` | output `u64[]` buffer | `u32 count` + released tags |
-| 6 | `ContainsAudioOutBuffer` | `u64` tag | `bool contains` |
-| 7 | `AppendAudioOutBufferAuto` | same as 3 | none |
-| 8 | `GetReleasedAudioOutBuffersAuto` | same as 5 | same |
-| 9 | `GetAudioOutBufferCount` | none | `u32 count` |
-| 10 | `GetAudioOutPlayedSampleCount` | none | `u64 samples` |
-| 11 | `FlushAudioOutBuffers` | none | `bool flushed` |
-| 12 | `SetAudioOutVolume` | `f32` | none |
-| 13 | `GetAudioOutVolume` | none | `f32` |
-
-`AudioOutBuffer`:
-
-```c
-struct AudioOutBuffer {
-    AudioOutBuffer *next;   // 0x00, guest pointer, usually ignored
-    uint64_t samples;       // 0x08, guest address of the PCM data
-    uint64_t capacity;      // 0x10, bytes
-    uint64_t size;          // 0x18, bytes actually used
-    uint64_t offset;        // 0x20, start offset
-};                          // 0x28
-```
-
-The tag is the separate `u64 buffer_client_ptr` argument (or the buffer's own guest address, matching the SDK). Keep
-the tag, sample pointer, capacity, size and offset. The buffer is guest memory: do not free it, and do not assume it
-stays valid after the game recycles it.
-
-Observed in earlier runs: after a successful `OpenAudioOut`, the game called `IAudioOut` commands 8, 0 and 2; another
-log showed command 4 with 8 data bytes. Eglantine's table above is the standard one, but this is SDK 6.4.0 and the
-game's actual command ids win. Log `rq->cmd`, `data_size`, buffers and handles for the first session and implement what
-the game sends. Also log whether the manager was converted to a CMIF domain: if it was, the `IAudioOut` object must be
-returned as a domain object id (and later requests carry a domain header), not blindly as a move handle.
-
-PCM format: audout's parameter has no format field, so the game supplies signed 16-bit little-endian PCM. Confirm in
-the first `AppendAudioOutBuffer` log; do not assume float.
-
-### 6.4 `IAudioOut` playback model to implement
-
-Per session, keep:
-
-- state (started/stopped), volume, sample rate (48 kHz), channels (2);
-- a queue of appended buffers with {tag, guest samples, bytes, frames, offset, played};
-- a release event (`kern_event_new` + a readable handle) and a played-sample counter;
-- a host ring/stream fed from the guest PCM.
-
-Rules:
-
-- `Start` marks running and starts feeding the device; `Stop` stops after queued audio, or flushes according to the
-  hardware model. `GetAudioOutState` returns the current state.
-- `AppendAudioOutBuffer` validates that `samples + offset + size` is readable, converts/copies into the host ring, and
-  returns at once. Do not decode or wait in the IPC handler.
-- The audio callback/thread consumes frames and marks buffers complete. `GetReleasedAudioOutBuffers` returns the tags
-  of buffers whose samples have been consumed, in append order, and **fills the client's output buffer**. If no
-  buffers are released, return success with count 0, not `0xE401`. The earlier `0`-count attempt broke the SDK with
-  `svc #0x26`; that was a malformed reply layout or missing output buffer, not a reason to return an error.
-- Signal the registered buffer event whenever a buffer is released. `RegisterBufferEvent` must return a copy handle
-  that the client can wait on. `ContainsAudioOutBuffer` searches the queue; `GetAudioOutBufferCount` is the number of
-  queued (not released) buffers; `GetAudioOutPlayedSampleCount` is cumulative played samples.
-- `FlushAudioOutBuffers` drops queued buffers and returns whether anything was flushed.
-- `Set/GetAudioOutVolume` store a float; apply it in the host mixer.
-
-`OpenAudioOut` must fill `AudioOutParameterInternal` with 48000, 2, PCM16 (format value used by the SDK; log it
-first), and state Stopped. It must also return the output name buffer (the game expects the same "DeviceOut" name).
-
-### 6.5 `hwopus` contract
-
-Current `runtime/ov_hwopus.c` only handles command 1. Eglantine's `IHardwareOpusDecoderManager` and
-`IHardwareOpusDecoder` use the following (all raw-data offsets are relative to the request data):
-
-Manager `hwopus`:
-
-| Cmd | Name | Input | Output |
-|---|---|---|---|
-| 0 | `OpenHardwareOpusDecoder` | out object, `OpusParameters` (8 bytes), `u32 tmem_size`, copy transfer-memory handle | decoder object |
-| 1 | `GetWorkBufferSize` | `OpusParameters` (8 bytes) | `u32 size` |
-| 2 | `OpenHardwareOpusDecoderForMultiStream` | out object, `OpusMultiStreamParameters` (0x110), tmem size, handle | decoder object |
-| 3 | `GetWorkBufferSizeForMultiStream` | `OpusMultiStreamParameters` | `u32` |
-| 4 | `OpenHardwareOpusDecoderEx` | out object, `OpusParametersEx` (0x10), tmem size, handle | decoder object |
-| 5 | `GetWorkBufferSizeEx` | `OpusParametersEx` | `u32` |
-| 6 | `OpenHardwareOpusDecoderForMultiStreamEx` | out object, `OpusMultiStreamParametersEx` (0x118), tmem size, handle | decoder object |
-| 7 | `GetWorkBufferSizeForMultiStreamEx` | `OpusMultiStreamParametersEx` | `u32` |
-| 8 | `GetWorkBufferSizeExEx` | `OpusParametersEx` | `u32` |
-| 9 | `GetWorkBufferSizeForMultiStreamExEx` | `OpusMultiStreamParametersEx` | `u32` |
-
-`OpusParameters` = `{u32 sample_rate, u32 channel_count}`. `OpusParametersEx` adds `u8 use_large_frame_size` plus
-padding at 0x8. Multi-stream structs add `total_stream_count`, `stereo_stream_count` and a 256-byte mapping array.
-
-Decoder `IHardwareOpusDecoder`:
-
-| Cmd | Name | Input | Output |
-|---|---|---|---|
-| 0 | `DecodeInterleavedOld` | out PCM buffer, `Out<u32> data_size`, `Out<u32> sample_count`, in opus data | PCM + sizes |
-| 1 | `SetContext` | input decoder context buffer | none |
-| 2 | `DecodeInterleavedForMultiStreamOld` | same as 0 | same |
-| 3 | `SetContextForMultiStream` | same as 1 | none |
-| 4 | `DecodeInterleavedWithPerfOld` | as 0 + `Out<u64> time_taken` | same |
-| 5 | `DecodeInterleavedForMultiStreamWithPerfOld` | as 4 | same |
-| 6 | `DecodeInterleavedWithPerfAndResetOld` | as 4 + trailing `bool reset` | same |
-| 7 | `DecodeInterleavedForMultiStreamWithPerfAndResetOld` | as 6 | same |
-| 8 | `DecodeInterleaved` | out PCM, `Out<u32> data_size`, `Out<u32> sample_count`, `Out<u64> time_taken`, in opus data, `bool reset` | same |
-| 9 | `DecodeInterleavedForMultiStream` | as 8 | same |
-
-Opus packet header on the wire is **big-endian**:
-
-```c
-struct OpusPacketHeader { u32 size; u32 final_range; }; // 8 bytes, size excludes the header
-```
-
-If `final_range` is nonzero, compare it with libopus's `OPUS_GET_FINAL_RANGE`; a mismatch means invalid packet.
-
-Work buffer: the current `0x9000` answer is adequate for mono/stereo 48 kHz; Eglantine's formula is essentially
-`opus_decoder_get_size(channels) + aligned frame bytes + 0x600` input staging, with 60 ms (5760 samples) large frames.
-Keep the query and the decoder's actual staging consistent.
-
-Implementation path: reuse the libopus decoder registry already in `runtime/ov_media.c` or factor it into a shared
-module. The guest work buffer can stay unused (libopus owns state on the host), but the size reported must be at
-least what the SDK expects. Decode into the caller's PCM buffer, return `header.size + 8` as data size and the
-decoded sample count. Do not block in the IPC handler for long; libopus decode is sub-millisecond for these frames.
-
-### 6.6 Audio acceptance tests
-
-1. Run the title/menu with `AC_TRACE=ipc`; confirm `audout:u` command 1 returns a session, and no
-   `OpenDefaultAudioOut` crash.
-2. Confirm `AppendAudioOutBuffer` receives PCM buffers, `GetReleasedAudioOutBuffers` eventually returns their tags,
-   and the buffer event is signalled. The game must not spin or leak buffers.
-3. Listen for the title/menu music and UI sounds. Then start New Game and listen for dialogue/SFX.
-4. Run with `AC_TRACE=audio` (or the mixer's logs) and confirm no underruns, no `audio mixer frame / buffer count`
-   fatal, and stable frame pacing.
-5. Run a long scripted New Game (`build/input_newgame2.txt`) and verify no `hwopus` unimplemented command.
-6. Check that `audout` and `audren` can coexist: the game may use `audren` for other audio. Do not let one close the
-   other's SDL audio subsystem.
-
----
-
-## 7. Priority 2 — AOT shaders
-
-### 7.1 What already works
+### 6.1 What already works
 
 - Translator: `build/xlate/ac_xlate.exe` (3.4 MB) and `build/xlate/ac_xlate.id`. Built by
   `tools/build_xlate.py` (Ryujinx 1.3.2 + 11 patches + NativeAOT). It is auto-detected from the repo root; no
@@ -480,7 +243,7 @@ decoded sample count. Do not block in the IPC handler for long; libopus decode i
 The per-shader cache key includes the translator identity and the answers; changing either invalidates the cache
 without a manual version bump. `KEY_VERSION`/`IN_VERSION` cover layout changes on our side.
 
-### 7.2 Existing preparation hooks
+### 6.2 Existing preparation hooks
 
 - `astralchain.exe --prepare-shaders` calls `gfx_shader_prepare_seed(dir)`:
   - reads `build/v0/seed-answers.bin` and `build/v0/seed-programs.bin` (same record formats as the recorded files);
@@ -508,7 +271,7 @@ shader-prepared.bin: "ACSPRP", u32 version, u32 rec_size(36); records:
 The seed tool writes seed records with a zero input id and the priority in the pad byte (0 title, 1 warm-up, 2 rest).
 `gfx_shader_prepare_seed` translates each seed record, derives its real input id, and stores the prepared list.
 
-### 7.3 Immediate workaround / verification
+### 6.3 Immediate workaround / verification
 
 1. Run the title, menu and a representative slice of New Game long enough to populate `shader-answers.bin` and
    `shader-programs.bin` (the current files are already populated; a longer run adds field shaders).
@@ -516,14 +279,14 @@ The seed tool writes seed records with a zero input id and the priority in the p
    prepares the recorded pairs into the shader cache; the next boot's pipeline prewarm should have fewer misses.
 3. For `--prepare-shaders`, the missing piece is the seed generator. The runtime expects `seed-answers.bin` and
    `seed-programs.bin`; the recorded files are not in the exact seed form (recorded records carry real input ids).
-   Do not assume a plain file copy is a supported seed. The proper fix is the tool in 7.4.
+   Do not assume a plain file copy is a supported seed. The proper fix is the tool in 6.4.
 4. Verify on a **fresh** build folder: copy the prepared cache and pipeline files, delete `shader-cache` and
    `pipeline-cache.bin` in a test folder, run `--prepare-shaders --warm-shaders`, then launch and check that the
    first minute has no shader translation stalls. Use `AC_TRACE=perf` and the overlay, and `--seconds 60`.
 5. Never commit `shader-cache/`, `pipeline-cache.bin`, `shader-answers.bin`, `shader-programs.bin`,
    `shader-prepared.bin`, `pipeline-keys.bin` or `build/xlate/` — they are game-derived/ignored.
 
-### 7.4 Proper AOT implementation
+### 6.4 Proper AOT implementation
 
 The TotK reference has the missing tooling under `refs/MacNativeGames/games/totk/scripts/`:
 
@@ -559,9 +322,9 @@ pipeline.
 
 ---
 
-## 8. Other services and end-to-end work
+## 7. Other services and end-to-end work
 
-Order after sound/AOT:
+Order after AOT:
 
 1. **Full `fsp-srv` save data.** `runtime/ov_fsp.c` only handles access-log commands; `CommitSaveData` is overridden
    in `runtime/fs_host.c`. The host fs layer has a full atomic save transaction (`runtime/fs_host.c`), but the SDK's
@@ -569,14 +332,13 @@ Order after sound/AOT:
    implement cmd 51/52/53 and `IFileSystem` cmd 10 (`Commit`) on a session object, returning success and publishing
    the host save. The exact layouts are in the Eglantine reference (`fsp_srv.cpp`, `fs_i_filesystem.cpp`); watch
    Eglantine's cmd 22 argument-order and cmd 37 struct-size bugs.
-2. **`hwopus` completion / voices.** See section 6.5. This is part of priority 1.
-3. **`nfp:user` / amiibo.** Current handler is a compatibility stub; if the game's New Game or menus use amiibo,
+2. **`nfp:user` / amiibo.** Current handler is a compatibility stub; if the game's New Game or menus use amiibo,
    implement the NFC service or return the documented "no reader" results consistently.
-4. **`account` / `friends`.** `ov_system.c` overrides `OpenUser`, `OpenPreselectedUser`, `CloseUser`,
+3. **`account` / `friends`.** `ov_system.c` overrides `OpenUser`, `OpenPreselectedUser`, `CloseUser`,
    `friends::UserPresence::Initialize`; check any new user/friend command that appears in a longer run.
-5. **`prepo:u` / `nifm:u`.** Real play reports/network are not needed for offline play; keep them local/no-network
+4. **`prepo:u` / `nifm:u`.** Real play reports/network are not needed for offline play; keep them local/no-network
    and log commands. Do not replace them with a fake success that makes the game wait for data it never gets.
-6. **Shared fonts.** Add `.bfttf` files via `AC_SHARED_FONTS` if system-font text is needed; the current fallback is
+5. **Shared fonts.** Add `.bfttf` files via `AC_SHARED_FONTS` if system-font text is needed; the current fallback is
    intentional and does not block the English UI.
 
 Any new service must be added to the table in `runtime/ipc.c`, declared in `runtime/ov.h`, and respect CMIF domain
@@ -585,7 +347,7 @@ for an object or a buffer.
 
 ---
 
-## 9. Controller and input
+## 8. Controller and input
 
 The full instructions are in `AGENTS.md` ("Controller"). Summary:
 
@@ -611,7 +373,7 @@ The game reads the pad through `runtime/ov_input.c` (libnx `NpadState`) fed by `
 
 ---
 
-## 10. Graphics / performance notes
+## 9. Graphics / performance notes
 
 - Title/menu now draws ~100-130 draws/frame; `AC_TRACE=gfx` frame lines show `draws executed/seen`. The per-stage
   program fix is the difference between `0/113` and `113/113`.
@@ -633,28 +395,26 @@ The game reads the pad through `runtime/ov_input.c` (libnx `NpadState`) fed by `
 
 ---
 
-## 11. Testing checklist
+## 10. Testing checklist
 
 Run these after each significant change:
 
 1. `python tools/check_content.py --staged` (before commit).
 2. Build clean: regenerate C with `--patches`, then `tools/build_game.py`.
 3. `build\v0\astralchain.exe --seconds 10 --shot build\v0\title.png`; inspect the title/menu image. It should show
-   the red cube and `ZL + ZR`, not black.
+   the Astral Chain logo and the `ZL + ZR` prompt, not black.
 4. `build\v0\astralchain.exe --seconds 30` with `build/input_newgame2.txt`; no fatal, ~30 fps, save mount/unmount
    logs, no shader failures/validation errors. Capture a gameplay frame after a longer run.
-5. Audio: with the new `audout`/`hwopus`, confirm music/SFX/voices and buffer recycling; no `OpenDefaultAudioOut`
-   crash, no `svc #0x26` break, no audio underrun fatal.
-6. AOT: fresh cache folder, `--prepare-shaders` + `--warm-shaders`, then a 60 s run; no on-demand translation
+5. AOT: fresh cache folder, `--prepare-shaders` + `--warm-shaders`, then a 60 s run; no on-demand translation
    stalls, no driver crash, prepared counts logged.
-7. Controller: physical pad and an `AC_INPUT_SCRIPT` run both reach the menu; overlay F10/L3+R3 works.
-8. Probes where relevant: `--selftest`, `--probe-loader`, `--probe-kernel`, `--probe-ipc`, `--probe-nvn`,
+6. Controller: physical pad and an `AC_INPUT_SCRIPT` run both reach the menu; overlay F10/L3+R3 works.
+7. Probes where relevant: `--selftest`, `--probe-loader`, `--probe-kernel`, `--probe-ipc`, `--probe-nvn`,
    `--probe-gfx-abi`, `--probe-shader`, `--probe-astc`, `--probe-window`, `--probe-dpi`.
 
 ### Debug tips
 
 - Log: `build/v0/logs/astralchain.log`.
-- `AC_TRACE=ipc` prints service/command/result lines (helpful for audio).
+- `AC_TRACE=ipc` prints service/command/result lines (the first stop for a missing service command).
 - `AC_TRACE=gfx` prints per-frame submit/draw/clear counts and NVN first calls.
 - `AC_TRACE=perf` prints periodic fps/frame-time lines.
 - `AC_CORE_DIAG=1` explains core waits; `AC_TRACE=sched` gives per-thread accounting. Do not leave them on for
@@ -667,7 +427,7 @@ Run these after each significant change:
 
 ---
 
-## 12. Pitfalls and invariants
+## 11. Pitfalls and invariants
 
 - Generated C is never hand-edited. Change `recomp/` and regenerate. The generator's marker must stay on every output.
 - `recomp/layout.py` alone decides module bases. Do not hardcode addresses outside the generated `layout.h` where a
@@ -679,32 +439,17 @@ Run these after each significant change:
 - `RT_RET_HOST`/host function addresses are outside the modules; `rt_dispatch` must resolve them through the host
   hash table, not the module tables.
 - SDK-internal functions are not imports. Host overrides catch imported symbols; if the SDK calls an internal
-  function that opens a service (e.g. singular `GetNpadState`, `HardwareOpusDecoder`, `prepo` shim), implement the
-  service/IPC side, not just the import.
+  function that opens a service (e.g. singular `GetNpadState` or the `prepo` shim), implement the service/IPC side,
+  not just the import.
 - CMIF domains are required for some services. `runtime/ipc.c` has a minimal domain implementation; keep it and
   extend it rather than refusing `ConvertToDomain`.
-- Audio and video are asynchronous; do not block IPC handlers on device playback or shader translation.
-- No game data in git. `build/`, `generated/`, `shader-cache`, pipeline caches, seeds, screenshots and `Eglantine/`
-  stay out. `docs/handover.md` is untracked; decide with the user whether to commit it.
+- Async paths (device playback, shader translation) must not block IPC handlers.
+- No game data in git. `build/`, `generated/`, `shader-cache`, pipeline caches, seeds and screenshots stay out;
+  `Eglantine/` stays untracked.
 
 ---
 
-## 13. Next steps, in order
-
-1. ~~Implement `audout:u` and `hwopus`.~~ Done (section 6). Music, SFX and voice decoding are in place; the game opens
-   `hwopus` only for `GetWorkBufferSize` today, so the decoder command path is implemented but not yet exercised by
-   play. Check it the first time voices appear (`AC_TRACE=audio` logs the first decode's buffer layout).
-2. Add the AOT shader preparation path: `AC_TEST_PREPARE_SHADERS=1` first, then a `seed-answers`/`seed-programs`
-   generator (recorded-play conversion is the shortest correct route), then `--prepare-shaders` + `--warm-shaders`.
-   Measure with the overlay and `AC_TRACE=perf`.
-3. Verify a clean New Game run visually and for a longer slice; fix the next missing service or render issue that
-   appears. Full `fsp-srv`/`IFileSystem` is the likely next service after audio.
-4. Clean any temporary logging added during this work, regenerate with `--patches`, rebuild, re-run the checklist,
-   then ask the user to commit (content check first).
-
----
-
-## 14. Reference material
+## 12. Reference material
 
 - `docs/architecture.md` — design of the port.
 - `docs/building.md` — toolchain, build, probes, shader preparation (some TotK-only tool names are stale here).
@@ -712,5 +457,5 @@ Run these after each significant change:
 - `docs/astral-chain.md` — Astral Chain port notes, RomFS/address facts.
 - `AGENTS.md` — priorities, content rules, controller instructions, Eglantine note.
 - `refs/` — MIT/BSD upstreams (TotK/MNG, LAS Recomp, nxnative, d2r-mobile) and the pinned Ryujinx translator.
-- `Eglantine/` — read-only GPL reference emulator for service behaviour (fsp-srv, audout, hwopus, HID, NVN
-  sync/present). Use it for layouts/semantics, write our own code.
+- `Eglantine/` — read-only GPL reference emulator for service behaviour (fsp-srv, HID, NVN sync/present). Use it for
+  layouts/semantics, write our own code.

@@ -151,14 +151,16 @@ class Form:
         return self.installed_state() is not None
 
     def problems(self):
-        """Ids of the entries that are missing or wrong, in screen order. A folder with totk-install.json needs only
-        itself; the CLI asks for the game files when it must extract again."""
+        """Ids of the entries that are missing or wrong, in screen order. A folder with an install record needs only
+        itself; the CLI asks for the game files when it must extract again. The setup takes the base game and the keys
+        file only: the port supports version 1.0.0, so there is no update to pick, and the Switch system fonts come
+        from the game data."""
         found = []
         update = self.update_mode()
         if not self.dest.strip():
             found.append('ui.need_dest')
         if not update:
-            for name in ('base', 'update', 'keys'):
+            for name in ('base', 'keys'):
                 value = getattr(self, name).strip()
                 if not value:
                     found.append(f'ui.need_{name}')
@@ -167,12 +169,10 @@ class Form:
             if self.lang not in ini.LANGUAGES:
                 found.append('ui.need_lang')
         else:
-            for name in ('base', 'update', 'keys'):
+            for name in ('base', 'keys'):
                 value = getattr(self, name).strip()
                 if value and not Path(value).is_file():
                     found.append(f'ui.missing_{name}')
-        if self.firmware.strip() and not Path(self.firmware.strip()).is_dir():
-            found.append('ui.missing_firmware')
         return found
 
     def command(self, python, root=None, temp=None, verify_hashes=False):
