@@ -158,7 +158,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                   "window loses focus, as on the Switch when Home is pressed; a load interrupted that "
                                   "way can stop for good.",
 
-    [UI_MENU_MODS_BUILTIN] = "Built into the port", [UI_MENU_MODS_INSTALLED] = "Installed mods",
+    [UI_MENU_MODS_INSTALLED] = "Installed mods",
     [UI_MENU_MODS_NONE] = "No mods yet. Unpack a mod into the mods folder, one folder per mod with its romfs folder "
                           "inside, and restart the game. TKMM can export its merged mods into a folder there too.",
     [UI_MENU_MODS_OPEN] = "Open mods folder",
@@ -179,15 +179,6 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_MODS_OTHER_VERSION] = "%u of its files are made for another game version and are left out. Look for a "
                                    "version of this mod made for your game version.",
     [UI_MENU_MODS_UNUSED] = "not used",
-    [UI_MENU_MODS_FPS60] = "60 FPS patch",
-    [UI_MENU_MODS_FPS60_DESC] = "The port's own patch for 60 frames per second. Set it with Frame rate limit on the "
-                                "Game tab.",
-    [UI_MENU_MODS_RES] = "Resolution patch",
-    [UI_MENU_MODS_RES_DESC] = "The port's own patch for resolutions above 1080p. Set it with Game resolution on the "
-                              "Screen tab.",
-    [UI_MENU_MODS_QUICKMENU] = "Quick menu fix",
-    [UI_MENU_MODS_QUICKMENU_DESC] = "The port's fix for the black background of the weapon, shield and material menus "
-                                    "at 60 FPS.",
 
     [UI_MENU_VOLUME] = "Volume", [UI_MENU_VOLUME_DESC] = "Master volume of the game.",
 
@@ -582,7 +573,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                   "когда окно теряет фокус, как на Switch при нажатии Home; прерванная так загрузка "
                                   "может остановиться насовсем.",
 
-    [UI_MENU_MODS_BUILTIN] = "Встроенные в порт", [UI_MENU_MODS_INSTALLED] = "Установленные моды",
+    [UI_MENU_MODS_INSTALLED] = "Установленные моды",
     [UI_MENU_MODS_NONE] = "Модов пока нет. Распакуйте мод в папку mods, каждый мод в свою папку с папкой romfs внутри, и "
                           "перезапустите игру. TKMM тоже может выгрузить туда объединённые моды отдельной папкой.",
     [UI_MENU_MODS_OPEN] = "Открыть папку модов",
@@ -602,14 +593,6 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_MODS_OTHER_VERSION] = "Файлов для другой версии игры: %u, они пропущены. Поищите версию этого мода для "
                                    "вашей версии игры.",
     [UI_MENU_MODS_UNUSED] = "не используется",
-    [UI_MENU_MODS_FPS60] = "Патч 60 FPS",
-    [UI_MENU_MODS_FPS60_DESC] = "Собственный патч порта для 60 кадров в секунду. Настраивается «Ограничением частоты "
-                                "кадров» на вкладке «Игра».",
-    [UI_MENU_MODS_RES] = "Патч разрешения",
-    [UI_MENU_MODS_RES_DESC] = "Собственный патч порта для разрешений выше 1080p. Настраивается «Разрешением игры» на "
-                              "вкладке «Экран».",
-    [UI_MENU_MODS_QUICKMENU] = "Исправление быстрого меню",
-    [UI_MENU_MODS_QUICKMENU_DESC] = "Исправление порта: чёрный фон меню оружия, щитов и материалов при 60 FPS.",
 
     [UI_MENU_VOLUME] = "Громкость", [UI_MENU_VOLUME_DESC] = "Общая громкость игры.",
 
@@ -881,7 +864,7 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_TAB_SCREEN] = "Tela", [UI_MENU_TAB_GAME] = "Jogo", [UI_MENU_TAB_SOUND] = "Som",
     [UI_MENU_TAB_CONTROLS] = "Controles", [UI_MENU_TAB_AMIIBO] = "Amiibo", [UI_MENU_TAB_MENU] = "Menu", [UI_MENU_TAB_ADVANCED] = "Avançado",
     [UI_MENU_TAB_MODS] = "Mods",
-    [UI_MENU_MODS_BUILTIN] = "Embutidos no port", [UI_MENU_MODS_INSTALLED] = "Mods instalados",
+    [UI_MENU_MODS_INSTALLED] = "Mods instalados",
     [UI_MENU_MODS_NONE] = "Nenhum mod ainda. Descompacte um mod na pasta mods, uma pasta por mod com a pasta romfs dentro, "
                           "e reinicie o jogo. O TKMM também pode exportar os mods mesclados para uma pasta ali.",
     [UI_MENU_MODS_OPEN] = "Abrir pasta de mods",
@@ -902,15 +885,6 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_MODS_OTHER_VERSION] = "%u dos seus arquivos são de outra versão do jogo e ficam de fora. Procure uma versão "
                                    "deste mod feita para a sua versão do jogo.",
     [UI_MENU_MODS_UNUSED] = "não usado",
-    [UI_MENU_MODS_FPS60] = "Patch de 60 FPS",
-    [UI_MENU_MODS_FPS60_DESC] = "O patch do próprio port para 60 quadros por segundo. Ajuste em Limite de quadros na aba "
-                                "Jogo.",
-    [UI_MENU_MODS_RES] = "Patch de resolução",
-    [UI_MENU_MODS_RES_DESC] = "O patch do próprio port para resoluções acima de 1080p. Ajuste em Resolução do jogo na aba "
-                              "Tela.",
-    [UI_MENU_MODS_QUICKMENU] = "Correção do menu rápido",
-    [UI_MENU_MODS_QUICKMENU_DESC] = "A correção do port para o fundo preto dos menus de armas, escudos e materiais a 60 "
-                                    "FPS.",
     [UI_MENU_CONTINUE] = "Continuar", [UI_MENU_QUIT] = "Sair do jogo",
     [UI_MENU_ON] = "Ligado", [UI_MENU_OFF] = "Desligado", [UI_MENU_AUTO] = "Automático",
     [UI_MENU_DEFAULT_MARK] = "padrão",
@@ -1345,7 +1319,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_TAB_MENU] = "菜单",
     [UI_MENU_TAB_ADVANCED] = "高级",
     [UI_MENU_TAB_MODS] = "模组",
-    [UI_MENU_MODS_BUILTIN] = "移植版内置", [UI_MENU_MODS_INSTALLED] = "已安装的模组",
+    [UI_MENU_MODS_INSTALLED] = "已安装的模组",
     [UI_MENU_MODS_NONE] = "还没有模组。把模组解压到 mods 文件夹，每个模组一个文件夹，里面放 romfs 文件夹，然后重启游戏。"
                           "TKMM 也可以把合并后的模组导出到那里的一个文件夹。",
     [UI_MENU_MODS_OPEN] = "打开模组文件夹",
@@ -1362,12 +1336,6 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_MODS_BAD_NAME] = "文件夹名称含有 |，模组列表用它分隔名称。请重命名该文件夹。",
     [UI_MENU_MODS_OTHER_VERSION] = "它有 %u 个文件是为其他游戏版本制作的，已被跳过。请寻找适用于你的游戏版本的此模组。",
     [UI_MENU_MODS_UNUSED] = "未使用",
-    [UI_MENU_MODS_FPS60] = "60 FPS 补丁",
-    [UI_MENU_MODS_FPS60_DESC] = "移植版自带的 60 帧补丁。在“游戏”页的帧率上限中设置。",
-    [UI_MENU_MODS_RES] = "分辨率补丁",
-    [UI_MENU_MODS_RES_DESC] = "移植版自带的 1080p 以上分辨率补丁。在“显示”页的游戏分辨率中设置。",
-    [UI_MENU_MODS_QUICKMENU] = "快捷菜单修复",
-    [UI_MENU_MODS_QUICKMENU_DESC] = "移植版对 60 FPS 下武器、盾牌和材料快捷菜单黑色背景的修复。",
     [UI_MENU_CONTINUE] = "继续",
     [UI_MENU_QUIT] = "退出游戏",
     [UI_MENU_ON] = "开",

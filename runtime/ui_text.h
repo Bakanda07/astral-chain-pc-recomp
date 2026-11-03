@@ -67,8 +67,8 @@ typedef enum {
     UI_MENU_OPERATION_MODE, UI_MENU_OPERATION_MODE_DESC, UI_MENU_MODE_DOCKED, UI_MENU_MODE_HANDHELD,
     UI_MENU_ASSUME_FOCUS, UI_MENU_ASSUME_FOCUS_DESC,
 
-    // Mods: the port's own patches and the player's mods folder (mods.c)
-    UI_MENU_MODS_BUILTIN, UI_MENU_MODS_INSTALLED,
+    // Mods: the player's mods folder (mods.c)
+    UI_MENU_MODS_INSTALLED,
     UI_MENU_MODS_NONE,           // no mod folder yet: where to unpack one
     UI_MENU_MODS_OPEN, UI_MENU_MODS_OPEN_DESC,
     UI_MENU_MODS_ROW_DESC,       // printf: files it replaces, files it adds (as of this start)
@@ -83,8 +83,6 @@ typedef enum {
     UI_MENU_MODS_UNUSED,         // under the switch of a mod the port cannot use
     UI_MENU_MODS_CHEATS,         // printf: its cheats as read at start
     UI_MENU_MODS_CHEATS_FILE,    // printf: <build id>.txt, when none were read
-    UI_MENU_MODS_FPS60, UI_MENU_MODS_FPS60_DESC, UI_MENU_MODS_RES, UI_MENU_MODS_RES_DESC,
-    UI_MENU_MODS_QUICKMENU, UI_MENU_MODS_QUICKMENU_DESC,
 
     // Sound
     UI_MENU_VOLUME, UI_MENU_VOLUME_DESC,

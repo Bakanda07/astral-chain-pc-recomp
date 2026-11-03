@@ -1016,32 +1016,8 @@ static int g_tab;               // the tab shown
 static int g_tab_request = -1;  // select this tab at the next layout; -1 none
 static int g_focus_page = -1;   // this tab's first row takes the cursor once it is shown; -1 none
 
-// A row of another tab: that tab opens with the row under the cursor.
-static void go_to(int tab, const char *key) {
-    g_tab_request = tab;
-    opt_focus_key(key);
-}
-
-// ---- Mods: the mods folder (mods.c) with switches and the load order, then the port's own patches. The folder was
-// read at start; the rows change the order and switches for the next start.
-static void mods_builtin_rows(void) {
-    opt_group(UI_MENU_MODS_BUILTIN);
-    char fps[64], res[64];
-    const char *lim = cfg_value("AC_FPS_LIMIT");
-    if (!strcmp(lim, "display")) snprintf(fps, sizeof fps, "%s", menu_text(UI_MENU_FPS_DISPLAY));
-    else snprintf(fps, sizeof fps, "%s FPS", lim);
-    if (opt_button("##mods_fps60", UI_MENU_MODS_FPS60, UI_MENU_MODS_FPS60_DESC, fps)) go_to(TAB_GAME, "AC_FPS_LIMIT");
-    int w = 0, h = 0;
-    sscanf(cfg_value("AC_OUTPUT_RES"), "%dx%d", &w, &h);
-    snprintf(res, sizeof res, "%d × %d", w, h);   // U+00D7, as row_output_res shows it
-    if (opt_button("##mods_res", UI_MENU_MODS_RES, UI_MENU_MODS_RES_DESC, res)) go_to(TAB_SCREEN, "AC_OUTPUT_RES");
-    opt_toggle("AC_REALTIME", UI_MENU_REALTIME, UI_MENU_REALTIME_DESC);
-    opt_toggle("AC_CLOTH_REALTIME", UI_MENU_CLOTH_REALTIME, UI_MENU_CLOTH_REALTIME_DESC);
-    opt_toggle("AC_HIGHFPS_FIX", UI_MENU_HIGHFPS_FIX, UI_MENU_HIGHFPS_FIX_DESC);
-    opt_button("##mods_quickmenu", UI_MENU_MODS_QUICKMENU, UI_MENU_MODS_QUICKMENU_DESC,
-               menu_text(romfs_patches_loaded() ? UI_MENU_ON : UI_MENU_OFF));
-}
-
+// ---- Mods: the mods folder (mods.c) with switches and the load order. The folder was read at start; the rows
+// change the order and switches for the next start.
 static void tab_mods(float scale) {
     opt_begin("##mods", scale);
     opt_group(UI_MENU_MODS_INSTALLED);
@@ -1105,7 +1081,6 @@ static void tab_mods(float scale) {
         if (ok) plat_file_mkdir_p(mods_dir());
         if (!ok || !plat_open_folder(mods_dir())) open_failed = plat_now_ns() + 3000000000ull;
     }
-    mods_builtin_rows();
     opt_end();
     if (rebuild) {
         restart_rebuild = true;
