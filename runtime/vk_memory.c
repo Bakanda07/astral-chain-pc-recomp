@@ -1685,11 +1685,13 @@ static void vram_log(uint64_t frame) {
     vk_texture_census(&t);
     const double M = 1048576.0;
     rt_log("mem: vram frame %llu: vma %llu blocks %.0f MiB, %llu allocations %.0f MiB; textures live %llu (own memory %llu, "
-           "%.0f MiB), released %llu (own memory %llu, %.0f MiB); mirrors %lld %.0f MiB; releases pending %d",
+           "%.0f MiB), released %llu (own memory %llu, %.0f MiB); mirrors %lld %.0f MiB; releases pending %d; cache %.0f of "
+           "%.0f MiB, %llu dropped (%.0f MiB)",
            (unsigned long long)frame, (unsigned long long)blocks, block_bytes / M, (unsigned long long)allocs,
            alloc_bytes / M, (unsigned long long)t.live, (unsigned long long)t.own_live, t.bytes_live / M,
            (unsigned long long)t.released, (unsigned long long)t.own_released, t.bytes_released / M, (long long)m_live_n,
-           m_live_bytes / M, dead_pending());
+           m_live_bytes / M, dead_pending(), (t.bytes_live + t.bytes_released) / M, t.cache_budget / M,
+           (unsigned long long)t.cache_drops, t.cache_dropped / M);
 }
 
 // Device class: INTEGRATED -> uma; a discrete GPU with a DEVICE_LOCAL heap of 1 GiB or more beside a

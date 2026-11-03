@@ -42,6 +42,8 @@ typedef struct Tex {
     TexVkFormat f;
     VmaAllocation alloc;          // own memory; NULL when bound into pool memory
     VmaAllocation bound_to;       // the pool memory it is bound into
+    uint64_t bytes;               // own allocation size, 0 when bound into pool memory (cache budget)
+    uint32_t last_use;            // submit_epoch of the last bind or lookup (eviction order)
     uint32_t wgen;                // page generation of the last upload check
     uint32_t checked;             // submit_epoch of the last check from a draw binding
     int uploaded, released;
@@ -88,6 +90,8 @@ static nvn_hmap samplers = {.klen = sizeof(samp_par)};
 static int nreleased;
 static Tex *rel_head, *rel_tail;   // released entries in release order (sweep_released drops from the head)
 static uint64_t n_uploads, n_reuploads;
+// Own memory of every entry, live and released (tex_lock), and the cache budget's drops since start.
+static uint64_t own_bytes, n_cache_drops, n_cache_drop_bytes;
 // Re-uploads since the last perf line (tex_lock): all, and those of textures a WriteTexels wrote since their last upload.
 static uint64_t ru_n, ru_bytes, ru_ns, ru_wt_n, ru_wt_bytes, ru_wt_ns;
 // AC_TEX_ALIAS (default on; =0: a new image over live storage starts empty): a new descriptor over the storage of a
@@ -419,6 +423,7 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     e->key = *k;
     e->t = *t;
     e->f = f;
+    e->last_use = submit_epoch;
     e->pub.addr = k->addr;
     VkImage img = VK_NULL_HANDLE;
     if (scale == 1 && nvn_gpu_only(k->addr)) {   // storage in a physical or virtual pool: alias the pool memory (section 3.2)
@@ -438,6 +443,12 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
             free(e);
             return NULL;
         }
+    }
+    if (e->alloc) {   // own memory: counted against the cache budget (sweep_cache)
+        VmaAllocationInfo mi;
+        vmaGetAllocationInfo(c->vma, e->alloc, &mi);
+        e->bytes = mi.size;
+        own_bytes += e->bytes;
     }
     VkTexImage *p = &e->pub;
     p->image = img;
@@ -529,6 +540,7 @@ static void rel_unlink(Tex *e) {
 
 static void destroy_tex(Tex *e) {
     own_remove(e);
+    if (e->bytes) own_bytes -= e->bytes;
     tex_gen_bump(e->key.addr);
     nvn_hm_del(&by_key, &e->key);
     Tex *head = nvn_hm_get(&by_addr, &e->key.addr);
@@ -583,6 +595,57 @@ static void sweep_pressure(void) {   // tex_lock held
         if (!e->pub.mirrored || e->pub.gpu_owned || e->gpu_dirty) continue;
         destroy_tex(e);
         dropped++, n_pressure_drops++;
+    }
+}
+
+// AC_TEX_CACHE_MB: own memory the texture images may take, in MiB, live and released together. Empty or 0: an eighth
+// of the device budget, at least 512 MiB and at most 2 GiB; negative: no budget. Past it, the least recently used
+// entries that can come back intact are dropped, a few per submit, and uploaded again when the game binds them. The
+// released sweep above bounds the cache's dead entries by count; this one bounds the memory of everything it holds.
+#define CACHE_STEP 8
+#define CACHE_AGE 90   // submit epochs unused before the budget may drop an entry (about 1.5 s at 60 submits a second)
+static uint64_t cache_budget;   // tex_lock
+static int cache_budget_read;
+
+static void cache_budget_init(void) {   // tex_lock held
+    if (cache_budget_read) return;
+    cache_budget_read = 1;
+    const char *s = cfg_value("AC_TEX_CACHE_MB");
+    long mb = s && *s ? strtol(s, NULL, 10) : 0;
+    if (mb > 0) {
+        cache_budget = (uint64_t)mb << 20;
+    } else if (mb < 0) {
+        cache_budget = 0;
+    } else {
+        uint64_t used, budget;
+        int exact;
+        cache_budget = vk_mem_vram(&used, &budget, &exact) && budget ? budget / 8 : (1024ull << 20);
+        if (cache_budget < (512ull << 20)) cache_budget = 512ull << 20;
+        if (cache_budget > (2048ull << 20)) cache_budget = 2048ull << 20;
+    }
+    rt_log("vk: texture cache: %llu MiB of images (AC_TEX_CACHE_MB)", (unsigned long long)(cache_budget >> 20));
+}
+
+static int cache_evictable(const Tex *e) {
+    if (!e->bytes) return 0;
+    // The same rule as sweep_pressure: only an image whose content the storage can give back. A mirrored one the GPU
+    // owns or wrote is newer than its bytes, and one with a snapshot has no pages to re-upload from.
+    if (!e->pub.mirrored || e->pub.gpu_owned || e->gpu_dirty || e->snap || e->wt_n) return 0;
+    return e->last_use && submit_epoch - e->last_use > CACHE_AGE;
+}
+
+static void sweep_cache(void) {   // tex_lock held
+    cache_budget_init();
+    if (!cache_budget || own_bytes <= cache_budget) return;
+    for (int k = 0; k < CACHE_STEP && own_bytes > cache_budget; k++) {
+        Tex *best = NULL;
+        for (uint32_t i = 0; i < by_key.cap; i++) {
+            Tex *e = by_key.vals[i];
+            if (e && cache_evictable(e) && (!best || e->last_use < best->last_use)) best = e;
+        }
+        if (!best) break;
+        n_cache_drops++, n_cache_drop_bytes += best->bytes;
+        destroy_tex(best);
     }
 }
 
@@ -990,7 +1053,7 @@ const VkTexImage *vk_texture_get(const tex_t *t) {
     if (!t || !t->mem) return NULL;
     lock();
     Tex *e = entry_of(t);
-    if (e) make_fresh(e);
+    if (e) make_fresh(e), e->last_use = submit_epoch;
     unlock();
     return e ? &e->pub : NULL;
 }
@@ -1172,6 +1235,7 @@ const VkTexImage *vk_texture_by_id_locked(int id, view_t *view, int *has_view) {
         s->cepoch = 0;
     }
     Tex *e = s->ce;
+    if (e) e->last_use = submit_epoch;
     // Bindings of one submit share one check, answered from the submit's write-watch snapshot (guest writes during a
     // replay race the GPU read on hardware too). After one check an entry is either uploaded or never uploads (not
     // mirrored, GPU-owned or no CPU layout), so a slot that checked its entry in this submit has nothing left to do.
@@ -1206,6 +1270,7 @@ void vk_texture_new_submit(void) {
     lock();
     if (!++submit_epoch) submit_epoch = 1;
     sweep_pressure();
+    if (!(submit_epoch & 3)) sweep_cache();
     static uint64_t log_at;
     uint64_t f = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) / 60;
     if ((rt_trace & RT_TRACE_PERF) && f != log_at && tex_alias > 0) {
@@ -1842,6 +1907,10 @@ void vk_texture_census(VkTexCensus *s) {
     VkCtx *c = vk_ctx();
     memset(s, 0, sizeof *s);
     lock();
+    cache_budget_init();
+    s->cache_budget = cache_budget;
+    s->cache_dropped = n_cache_drop_bytes;
+    s->cache_drops = (uint32_t)n_cache_drops;
     for (uint32_t i = 0; i < by_key.cap; i++) {
         const Tex *e = by_key.vals[i];
         if (!e) continue;

@@ -55,6 +55,12 @@
 # ASTC texture decoding: native (the GPU's own ASTC support), gpu (a compute shader), cpu, or auto (native when the GPU
 # has it, gpu otherwise).
 # astc = auto
+# With the GPU decoder: re-encode the decoded ASTC textures to BC3, a quarter of the video memory, at the cost of BC3's
+# quality (slightly blockier, normal maps lose some precision). 0 keeps the decoded RGBA8 images.
+# astc_bc = 1
+# Live texture images kept in video memory, in MiB; past it the least recently used are dropped and uploaded again when
+# the game binds them. Empty or 0: an eighth of the device budget, at least 512 MiB and at most 2 GiB; -1: no budget.
+# tex_cache_mb =
 # Game memory shared with the GPU: auto (mirror on a discrete GPU, import on an integrated one), import (host memory
 # imported into Vulkan), mirror (pools used as buffers get a copy in video memory) or verify (mirror plus a check of
 # every copy; slow).

@@ -9,6 +9,12 @@
 #include "nvn_obj.h"   // pool_t, tex_t, view_t, samp_par, NVNcopyRegion (memory and textures block)
 #include "gfx.h"       // GfxShader, GfxShaderRes, GfxShaderAnswers (pipelines block)
 
+// The block VMA reserves per memory type at a time (preferredLargeHeapBlockSize, vk_device.c). It is also the size the
+// VRAM headroom thread (vk_headroom.c) prepares ahead, so both must agree. Smaller than VMA's 256 MiB default: the
+// texture cache creates and drops images of a few MiB, and a 256 MiB block with a handful of them in it keeps the rest
+// of the heap in slack that no smaller allocation can use.
+#define VK_VMA_BLOCK_SIZE (8ull << 20)
+
 // Required (device choice fails without them): Vulkan 1.3; VK_KHR_swapchain, VK_KHR_push_descriptor,
 // VK_EXT_depth_clip_control, VK_EXT_external_memory_host; features timelineSemaphore, dynamicRendering,
 // synchronization2, shaderStorageImageWriteWithoutFormat, depthClipControl, shaderInt64, samplerAnisotropy,
@@ -368,7 +374,8 @@ void vk_texture_range_gone(uint64_t lo, uint64_t size, VmaAllocation alloc);   /
 void vk_texture_stats(uint64_t *images, uint64_t *uploads, uint64_t *reuploads);
 // Entries now, live and released (TextureFinalize, kept until sweep_released), with the bytes of their own memory
 // (images not bound into pool memory).
-typedef struct { uint64_t live, released, own_live, own_released, bytes_live, bytes_released; } VkTexCensus;
+typedef struct { uint64_t live, released, own_live, own_released, bytes_live, bytes_released;
+                 uint64_t cache_budget, cache_dropped; uint32_t cache_drops; } VkTexCensus;
 void vk_texture_census(VkTexCensus *s);
 void vk_texture_shutdown(void);                     // vk_mem_shutdown calls it
 void vk_texture_new_submit(void);                   // a queue submit starts: draw bindings check storage again

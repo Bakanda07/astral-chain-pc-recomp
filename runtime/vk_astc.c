@@ -1,9 +1,11 @@
 // ASTC textures on the GPU: the AC_ASTC knob, a compute decoder that turns raw blocks into the RGBA8 image the CPU
 // decoder (tex_astc.c) would have written, and the native ASTC formats where the device samples them itself.
 //
-// AC_ASTC_BC = 1 (gpu mode only, default 0): a second pass (runtime/shaders/bc3_encode.comp) encodes the decoded
-// texels to BC3 and the image is BC3, 8 bits per texel instead of 32. For GPUs with little video memory, at the cost of
-// BC3's quality: textures look slightly blockier, and data textures (normal maps) lose some precision.
+// AC_ASTC_BC = 1 (gpu mode only, default 1): a second pass (runtime/shaders/bc3_encode.comp) encodes the decoded
+// texels to BC3 and the image is BC3, 8 bits per texel instead of 32, a quarter of the video memory the RGBA8 decode
+// takes. Devices that sample ASTC themselves never decode, so the default leaves them on native ASTC. 0 keeps the
+// decoded images as RGBA8, at BC3's cost being visible: slightly blockier gradients, and data textures (normal maps)
+// losing some precision. --probe-astc holds the encoder to PSNR bounds.
 //
 // AC_ASTC = auto (default): native when the device reports textureCompressionASTC_LDR and the format's features,
 // else gpu. gpu: compute decode into RGBA8 (runtime/shaders/astc_decode.comp). native: like auto, but logs when the
@@ -299,8 +301,7 @@ static int create_pipeline(VkCtx *c) {
 
 // AC_ASTC_BC=1: the BC3 encoder, when the device samples BC3 (every desktop GPU does); 0 leaves ASTC as RGBA8.
 static int create_bc_pipeline(VkCtx *c) {
-    const char *e = cfg_get("AC_ASTC_BC");
-    if (!e || !*e || *e == '0') return 0;
+    if (!cfg_bool("AC_ASTC_BC")) return 0;
     VkFormatProperties p;
     vkGetPhysicalDeviceFormatProperties(c->phys, VK_FORMAT_BC3_SRGB_BLOCK, &p);
     VkFormatFeatureFlags need = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;

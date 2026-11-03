@@ -347,6 +347,9 @@ static int create_device(void) {
     vk_caps_init(&g_vk);
 
     VmaAllocatorCreateInfo ai = {.physicalDevice = g_vk.phys, .device = g_vk.device, .instance = g_vk.instance,
+                                 // Smaller than VMA's 256 MiB default: a block holds several texture images and its
+                                 // unused remainder stops being dead space (vk.h VK_VMA_BLOCK_SIZE).
+                                 .preferredLargeHeapBlockSize = VK_VMA_BLOCK_SIZE,
                                  .vulkanApiVersion = VK_API_VERSION_1_3,
                                  .flags = (g_vk.has_buffer_device_address ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT : 0) |
                                           (g_vk.has_memory_budget ? VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT : 0),

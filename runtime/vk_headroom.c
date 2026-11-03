@@ -1,7 +1,8 @@
 // VRAM headroom: the next VMA block of a memory type is allocated on a background thread, not on the render thread.
 //
-// VMA places an allocation in an existing block of its memory type and allocates a new block (vkAllocateMemory, 32 to
-// 256 MiB) only when none has room. On the render thread that took 8-19 ms per block, several times in the first
+// VMA places an allocation in an existing block of its memory type and allocates a new block (vkAllocateMemory, 32 MiB
+// to the preferred block size, vk.h VK_VMA_BLOCK_SIZE) only when none has room. On the render thread that took 8-19 ms
+// per block, several times in the first
 // minute of play while VRAM grows (textures from create_tex, mirrors). A new VkDeviceMemory made by any other thread
 // (VMA's pfnAllocate callback) wakes this thread for its memory type, which it then checks every 500 ms. A check
 // allocates half a default block of that type (the largest size VMA still places in blocks, not in dedicated memory).
@@ -55,7 +56,7 @@ const VmaDeviceMemoryCallbacks *vk_headroom_callbacks(void) {
 
 static VkDeviceSize block_size(const VkCtx *c, uint32_t type) {
     VkDeviceSize heap = c->mem_props.memoryHeaps[c->mem_props.memoryTypes[type].heapIndex].size;
-    return heap <= HR_SMALL_HEAP ? heap / 8 : 256ull << 20;   // VMA's default preferredLargeHeapBlockSize
+    return heap <= HR_SMALL_HEAP ? heap / 8 : VK_VMA_BLOCK_SIZE;   // the allocator's preferredLargeHeapBlockSize
 }
 
 static int room(const VkCtx *c, uint32_t type, VkDeviceSize block) {
@@ -89,7 +90,7 @@ static void top_up(const VkCtx *c, uint32_t type) {
     H.anchor[type] = a;
     static volatile int32_t logged;
     if (plat_inc32(&logged) <= 32)
-        rt_log("vk: headroom: a %.0f MiB block of memory type %u allocated ahead (%lld so far; %lld allocations of 32 MiB "
+        rt_log("vk: headroom: %.0f MiB block of memory type %u allocated ahead (%lld so far; %lld allocations of 32 MiB "
                "or more on other threads)", (double)block / 1048576.0, type, (long long)H.made, (long long)H.other);
 }
 
