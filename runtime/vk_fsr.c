@@ -1,8 +1,9 @@
 // AMD FidelityFX Super Resolution 1 on the present path (gfx_present.c present_image): EASU scales the game's crop
-// rectangle to its place on the swapchain and RCAS sharpens it, in place of the bilinear vkCmdBlitImage. As Ryujinx's
-// FSR scaling filter, it runs at every size ratio: an image the window's size (AC_SSAA = 1.333 on a 1440p screen) gets
-// RCAS's sharpening, a larger one (AC_SSAA = 2) is reduced by EASU. AC_UPSCALER=fsr|bilinear picks it, AC_SHARPNESS
-// (0..100, 0 = no RCAS pass) sets RCAS; both apply at the next frame.
+// rectangle to its place on the swapchain and RCAS sharpens it, in place of the bilinear vkCmdBlitImage. An image the
+// window's size (AC_SSAA = 1.333 on a 1440p screen) gets RCAS alone. A larger one (AC_SSAA = 2 on a 1440p screen) is
+// reduced by an area average (runtime/shaders/downscale.comp) in EASU's place, then sharpened by RCAS: EASU and the
+// bilinear blit read only the texels around each pixel's centre and would throw part of the supersampling away.
+// AC_UPSCALER=fsr|bilinear picks it, AC_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS; both apply at the next frame.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
 // writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
@@ -19,6 +20,7 @@
 #include <string.h>
 
 #include "cfg.h"
+#include "downscale_spv.h"
 #include "fsr_easu_spv.h"
 #include "fsr_rcas_spv.h"
 #include "host.h"
@@ -30,7 +32,7 @@ static struct {
     PFN_vkCmdPushDescriptorSetKHR push;
     VkDescriptorSetLayout dsl;
     VkPipelineLayout layout;
-    VkPipeline easu, rcas;
+    VkPipeline easu, rcas, down;   // down: the area downscale
     VkSampler sampler;
     VkImage img[2];                // EASU output, RCAS output
     VmaAllocation alloc[2];
@@ -82,7 +84,8 @@ static int init(VkCtx *c) {
         vkCreatePipelineLayout(c->device, &li, NULL, &F.layout) != VK_SUCCESS ||
         vkCreateSampler(c->device, &si, NULL, &F.sampler) != VK_SUCCESS ||
         !(F.easu = make_pipeline(c, fsr_easu_spv, sizeof fsr_easu_spv)) ||
-        !(F.rcas = make_pipeline(c, fsr_rcas_spv, sizeof fsr_rcas_spv))) {
+        !(F.rcas = make_pipeline(c, fsr_rcas_spv, sizeof fsr_rcas_spv)) ||
+        !(F.down = make_pipeline(c, downscale_spv, sizeof downscale_spv))) {
         rt_log("vk: FSR off: its pipelines could not be created; the present scales bilinearly");
         return 0;
     }
@@ -163,6 +166,8 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     int cw = crop[2], ch = crop[3];
     uint32_t dw = (uint32_t)out[2], dh = (uint32_t)out[3];
     if (strcmp(cfg_value("AC_UPSCALER"), "fsr") || !fmt) return 0;
+    int down = dw < (uint32_t)cw || dh < (uint32_t)ch;   // a smaller window: the area downscale in EASU's place
+    int same = dw + 2 >= (uint32_t)cw && dw <= (uint32_t)cw + 2 && dh + 2 >= (uint32_t)ch && dh <= (uint32_t)ch + 2;
     VkCtx *c = vk_ctx();
     if (!F.tried) init(c);
     if (!F.ok || !ensure_images(c, dw, dh)) return 0;
@@ -180,22 +185,50 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     int sharp = cfg_int("AC_SHARPNESS");
     if (sharp < 0) sharp = 0;
     if (sharp > 100) sharp = 100;
+    if (same && sharp == 0) return 0;   // nothing to do: the source and the window are the same size
     if (F.lcw != cw || F.lch != ch || F.ldw != dw || F.ldh != dh) {
         F.lcw = cw, F.lch = ch, F.ldw = dw, F.ldh = dh;
-        rt_log("vk: FSR scales %dx%d to %ux%u (sharpness %d), crop %d,%d %dx%d", cw, ch, dw, dh, sharp, crop[0], crop[1],
-               crop[2], crop[3]);
+        if (same)
+            rt_log("vk: FSR sharpens %dx%d in place (RCAS %d), crop %d,%d %dx%d", cw, ch, sharp, crop[0], crop[1],
+                   crop[2], crop[3]);
+        else if (down)
+            rt_log("vk: area downscale %dx%d to %ux%u, then RCAS %d, crop %d,%d %dx%d", cw, ch, dw, dh, sharp, crop[0],
+                   crop[1], crop[2], crop[3]);
+        else
+            rt_log("vk: FSR scales %dx%d to %ux%u (sharpness %d), crop %d,%d %dx%d", cw, ch, dw, dh, sharp, crop[0],
+                   crop[1], crop[2], crop[3]);
     }
     const VkPipelineStageFlags2 CS = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, XF = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     // the game's writes to the source become visible to the compute read; the earlier frame's reads of the
     // intermediates finish before this frame writes them
     barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
             VK_ACCESS_2_MEMORY_WRITE_BIT, CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    uint32_t gx = (dw + 15) / 16, gy = (dh + 15) / 16;
+    if (same) {
+        // At 1:1, EASU only filters the native image. RCAS alone sharpens it, the way the emulators'
+        // FSR sharpening does, and the picture keeps the detail the larger render targets produced.
+        barrier(cb, F.img[1], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, CS | XF, 0, CS,
+                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+        float rcas[8] = {(float)dw, (float)dh, (float)(100 - sharp) / 50.0f, 0, 0, 0, 0, 0};
+        bind_pass(cb, F.rcas, F.src_view[slot], F.view[1], rcas);
+        vkCmdDispatch(cb, gx, gy, 1);
+        barrier(cb, F.img[1], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS,
+                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, XF, VK_ACCESS_2_TRANSFER_READ_BIT);
+        barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS, 0,
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);
+        VkImageBlit region = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                              .srcOffsets = {{0, 0, 0}, {(int)dw, (int)dh, 1}},
+                              .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                              .dstOffsets = {{out[0], out[1], 0}, {out[0] + (int)dw, out[1] + (int)dh, 1}}};
+        vkCmdBlitImage(cb, F.img[1], VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
+                       VK_FILTER_NEAREST);
+        return 1;
+    }
     for (int i = 0; i < 2; i++)
         barrier(cb, F.img[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, CS | XF, 0, CS,
                 VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    uint32_t gx = (dw + 15) / 16, gy = (dh + 15) / 16;
     float easu[8] = {(float)cw, (float)ch, (float)sw, (float)sh, (float)dw, (float)dh, (float)crop[0], (float)crop[1]};
-    bind_pass(cb, F.easu, F.src_view[slot], F.view[0], easu);
+    bind_pass(cb, down ? F.down : F.easu, F.src_view[slot], F.view[0], easu);   // downscale.comp takes EASU's constants
     vkCmdDispatch(cb, gx, gy, 1);
     int last = 0;
     if (sharp > 0) {
@@ -216,7 +249,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
                           .dstOffsets = {{out[0], out[1], 0}, {out[0] + (int)dw, out[1] + (int)dh, 1}}};
     vkCmdBlitImage(cb, F.img[last], VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
                    VK_FILTER_NEAREST);
-    return 1;
+    return down ? 2 : 1;
 }
 
 void vk_fsr_release(void) {
@@ -227,6 +260,7 @@ void vk_fsr_release(void) {
         if (F.src_view[i]) vkDestroyImageView(c->device, F.src_view[i], NULL);
     if (F.easu) vkDestroyPipeline(c->device, F.easu, NULL);
     if (F.rcas) vkDestroyPipeline(c->device, F.rcas, NULL);
+    if (F.down) vkDestroyPipeline(c->device, F.down, NULL);
     if (F.sampler) vkDestroySampler(c->device, F.sampler, NULL);
     if (F.layout) vkDestroyPipelineLayout(c->device, F.layout, NULL);
     if (F.dsl) vkDestroyDescriptorSetLayout(c->device, F.dsl, NULL);

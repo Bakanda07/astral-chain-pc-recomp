@@ -353,10 +353,13 @@ static float render_scale_of(const tex_t *t, const TexVkFormat *f, uint32_t samp
     const nvn_texdesc *d = &t->d;
     float scale = render_scale();
     if (scale <= 1.0f || mirrored || samples > 1) return 1.0f;
-    if (!(d->flags & (NVN_TEXTURE_FLAGS_IMAGE | NVN_TEXTURE_FLAGS_DISPLAY))) return 1.0f;
+    // Colour: the IMAGE or DISPLAY flag marks the game's render targets and its window. Depth and stencil textures are
+    // only ever rendered into, so they follow without a flag, as an emulator scales every depth target it binds
+    // (Eglantine, video_core/texture_cache/image_info.cpp, ImageInfo from the zeta registers): a 2048x2048 D24S8 target
+    // flagged COMPRESSIBLE alone kept the game's size.
+    if (!f->depth && !f->stencil && !(d->flags & (NVN_TEXTURE_FLAGS_IMAGE | NVN_TEXTURE_FLAGS_DISPLAY))) return 1.0f;
     if (d->flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) return 1.0f;
     if (d->target != NVN_TEXTURE_TARGET_2D && d->target != NVN_TEXTURE_TARGET_2D_ARRAY) return 1.0f;
-    if (f->depth && !(d->flags & NVN_TEXTURE_FLAGS_IMAGE)) return 1.0f;
     const VkPhysicalDeviceLimits *l = &vk_ctx()->props.limits;
     if ((float)d->width * scale > (float)l->maxImageDimension2D ||
         (float)d->height * scale > (float)l->maxImageDimension2D)
@@ -1797,7 +1800,8 @@ static VkCompareOp compare_op(uint32_t f) {
     }
 }
 
-static struct { int init, mirror_clamp_edge, minmax, border_no_format; float aniso; } sf;   // aniso: AC_ANISO, 0 = the game's
+// aniso: AC_ANISO as a level, 0 = the game's; aniso_add: AC_ANISO=auto, the levels added to the game's (doublings)
+static struct { int init, mirror_clamp_edge, minmax, border_no_format, aniso_add; float aniso; } sf;
 
 static void sampler_features(VkCtx *c) {
     if (sf.init) return;
@@ -1809,9 +1813,17 @@ static void sampler_features(VkCtx *c) {
     sf.mirror_clamp_edge = f12.samplerMirrorClampToEdge;
     sf.minmax = f12.samplerFilterMinmax;
     sf.border_no_format = c->has_custom_border_color && cbf.customBorderColors && cbf.customBorderColorWithoutFormat;
+    // AC_ANISO=auto (the default) follows the emulators' automatic mode (Eglantine, video_core/textures/texture.cpp,
+    // TSCEntry::MaxAnisotropy): one doubling of the game's level per whole step of AC_SSAA above 1, so 2 gives twice
+    // the game's level and 1 or 1.333 keep it. Without AC_SSAA it is the same as game.
     const char *an = cfg_value("AC_ANISO");
-    sf.aniso = strcmp(an, "game") ? (float)atoi(an) : 0;
-    rt_log("vk: anisotropic filtering: %s", sf.aniso > 1 ? an : "the game's");
+    int is_auto = !strcmp(an, "auto");
+    sf.aniso = is_auto || !strcmp(an, "game") ? 0 : (float)atoi(an);
+    sf.aniso_add = is_auto ? (int)floorf(vk_render_scale()) - 1 : 0;
+    if (sf.aniso_add < 0) sf.aniso_add = 0;
+    if (sf.aniso > 1) rt_log("vk: anisotropic filtering: %s", an);
+    else if (sf.aniso_add) rt_log("vk: anisotropic filtering: the game's level times %d (AC_ANISO=auto, AC_SSAA)", 1 << sf.aniso_add);
+    else rt_log("vk: anisotropic filtering: the game's");
     sf.init = 1;
 }
 
@@ -1867,13 +1879,13 @@ static VkSampler make_sampler(VkCtx *c, const samp_par *d) {
     // samplers, nearest or unmipmapped ones (data maps, LUTs) and clamped ones keep the game's level: clamped samplers
     // read screen-sized buffers, whose coordinates can stretch steeply at an object's edge, where anisotropic taps reach
     // across it and leave a speckled fringe (the inventory's character preview).
-    float aniso = d->aniso;
+    float aniso = d->aniso, want = sf.aniso_add ? fmaxf(aniso, 1.0f) * (float)(1 << sf.aniso_add) : sf.aniso;
     // The game's own wrap modes: a mirror-clamp one maps to MIRRORED_REPEAT where the device lacks mirror-clamp-to-edge.
     int tiled = (d->ws == NVN_WRAP_MODE_REPEAT || d->ws == NVN_WRAP_MODE_MIRRORED_REPEAT) &&
                 (d->wt == NVN_WRAP_MODE_REPEAT || d->wt == NVN_WRAP_MODE_MIRRORED_REPEAT);
-    if (sf.aniso > aniso && tiled && !d->cmp_mode && si.magFilter == VK_FILTER_LINEAR && si.minFilter == VK_FILTER_LINEAR &&
+    if (want > aniso && tiled && !d->cmp_mode && si.magFilter == VK_FILTER_LINEAR && si.minFilter == VK_FILTER_LINEAR &&
         (mf == NVN_MIN_FILTER_LINEAR_MIPMAP_NEAREST || mf == NVN_MIN_FILTER_LINEAR_MIPMAP_LINEAR))
-        aniso = sf.aniso;
+        aniso = want;
     if (aniso > 1) {
         si.anisotropyEnable = VK_TRUE;
         si.maxAnisotropy = fminf(aniso, c->props.limits.maxSamplerAnisotropy);

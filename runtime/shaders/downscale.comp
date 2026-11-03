@@ -1,0 +1,38 @@
+// Area downscale of the game's output to the swapchain size (runtime/vk_fsr.c), for a picture larger than the window
+// (AC_SSAA above the window's size). Each output pixel covers a rectangle of the source; it takes the average of the
+// texels under it, each weighted by the part of it the rectangle covers, so every rendered texel counts. A bilinear blit
+// reads only the 2x2 texels around the pixel's centre: at 3840 -> 2560 it skips texels and thin edges shimmer.
+// Same bindings and push constants as fsr_easu.comp.
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dst;
+
+layout(push_constant) uniform Params {
+    vec4 view;   // crop width, crop height, source image width, source image height
+    vec4 out_;   // output width, output height, crop x, crop y
+} pc;
+
+#define MAX_TAPS 8   // texels per axis: ratios up to 7
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.out_.x) || p.y >= int(pc.out_.y)) return;
+    vec2 ratio = pc.view.xy / pc.out_.xy;
+    vec2 a = pc.out_.zw + vec2(p) * ratio, b = a + ratio;   // the pixel's rectangle in source texels
+    ivec2 lo = ivec2(floor(a)), hi = min(ivec2(ceil(b)), lo + MAX_TAPS);
+    ivec2 last = ivec2(pc.view.zw) - 1;
+    vec3 sum = vec3(0.0);
+    float total = 0.0;
+    for (int y = lo.y; y < hi.y; y++) {
+        float wy = min(b.y, float(y + 1)) - max(a.y, float(y));
+        for (int x = lo.x; x < hi.x; x++) {
+            float w = wy * (min(b.x, float(x + 1)) - max(a.x, float(x)));
+            sum += w * texelFetch(src, clamp(ivec2(x, y), ivec2(0), last), 0).rgb;
+            total += w;
+        }
+    }
+    imageStore(dst, p, vec4(sum / max(total, 1e-6), 1.0));
+}

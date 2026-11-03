@@ -39,7 +39,7 @@ typedef enum {
     UI_MENU_ASPECT, UI_MENU_ASPECT_DESC, UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH,
     UI_MENU_FOV, UI_MENU_FOV_DESC,
     UI_MENU_SHADOW_RES, UI_MENU_SHADOW_RES_DESC, UI_MENU_SHADOW_RES_GAME,
-    UI_MENU_ANISO, UI_MENU_ANISO_DESC, UI_MENU_ANISO_GAME,
+    UI_MENU_ANISO, UI_MENU_ANISO_DESC, UI_MENU_ANISO_GAME, UI_MENU_ANISO_AUTO,
     UI_MENU_SHARPNESS, UI_MENU_SHARPNESS_DESC,
     UI_MENU_COLOR,            // group heading over the colour rows
     UI_MENU_COLOR_PRESET, UI_MENU_COLOR_PRESET_DESC, UI_MENU_COLOR_DEFAULT, UI_MENU_COLOR_VIVID, UI_MENU_COLOR_CLARITY,
@@ -211,6 +211,7 @@ typedef enum {
     UI_MENU_OV_FMT_SIZE,      // "%ux%u"
     UI_MENU_OV_FMT_SCENE,     // "%ux%u, %.0f%%": the scene and its share of the game image's width
     UI_MENU_OV_FMT_FSR,       // "AMD FSR 1, sharpness %d%%"
+    UI_MENU_OV_FMT_AREA,      // "area average, sharpness %d%%": a picture larger than the window (vk_fsr.c)
     UI_MENU_OV_SCALE_NONE, UI_MENU_OV_SCALE_BILINEAR,
     // the Cheats tab (cheats.c): the file, the kinds of cheat and why one cannot be switched
     UI_MENU_TAB_CHEATS,
