@@ -96,6 +96,8 @@
 
  "warn.lang_needs_fonts": "Text in {lang} needs the Switch system fonts. Choose the firmware folder (Contents/registered) to install them; without it some text may not show.",
  "warn.npdm_differs": "main.npdm differs from the reference {version} dump; only the code modules are used.",
+ "warn.data_accepted": "The game data differs from the reference 1.0.0 dump (size {size}); carrying on because you asked. The game may not run.",
+ "warn.version_accepted": "The game code differs from the reference 1.0.0 dump ({modules}); carrying on because you asked. The game may not run.",
  "warn.cheats_skipped": "The cheats of the mods folder that change the game's code could not be built; the game installs without them. Details: {log}",
  "warn.exefs_skipped": "The mods' ExeFS patches (.ips, .pchtxt) could not be built; the game installs without them. Details: {log}",
  "warn.xbox_prompts_failed": "The Xbox button prompts could not be prepared (exit code {code}); the game keeps the Switch prompts. Details: {log}",
@@ -134,6 +136,8 @@
  "ui.close": "Close",
  "ui.back": "Back",
  "ui.open_folder": "Open folder",
+ "ui.continue_anyway_help": "Your game files do not match the dump this build was made from. If you are sure this is the 1.0.0 base game, continue anyway: the game may run, or it may crash or show errors.",
+ "ui.continue_anyway": "Continue anyway",
  "ui.update_mode": "This folder holds an earlier installation. The setup continues or updates it; the game files are asked for only if they are needed again.",
  "ui.need_dest": "Choose the install folder.",
  "ui.need_base": "Choose the base game file.",

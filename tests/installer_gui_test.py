@@ -207,6 +207,12 @@ class FormTest(unittest.TestCase):
             self.assertIn(flag, cmd)
         self.assertEqual(cmd[cmd.index('--lang') + 1], 'en-US')
 
+    def test_continue_anyway_carries_the_flag(self):
+        # The window's "Continue anyway" runs the same command with the version check as a warning.
+        self.assertNotIn('--accept-unknown-version', self.form().command('py.exe'))
+        cmd = self.form().command('py.exe', accept_version=True)
+        self.assertEqual(cmd[-1], '--accept-unknown-version')
+
     def test_installed_folder_needs_only_itself(self):
         out = self.dir / 'out'
         statefile.save(self._mkdir(out), statefile.empty('r0') | {'lang': 'ru'})

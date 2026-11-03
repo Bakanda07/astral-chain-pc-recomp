@@ -446,7 +446,9 @@ class Check(Step):
             raise InstallError('check.file_unreadable', input='base', detail=str(e)) from None
         ok, problems = extract.exefs_ok(out / 'exefs', expected_game(ctx))
         if not ok:
-            raise InstallError('check.base_wrong_version', modules=', '.join(problems))
+            if not getattr(ctx.options, 'accept_unknown_version', False):
+                raise InstallError('check.base_wrong_version', modules=', '.join(problems))
+            ctx.reporter.warning('warn.version_accepted', modules=', '.join(problems))
         ctx.state['version'] = game_version(ctx)
 
 
@@ -500,7 +502,9 @@ class Extract(Step):
         shutil.move(str(staged / 'exefs'), str(dest / 'exefs'))
         ok, problems = extract.exefs_ok(dest / 'exefs', expected)
         if not ok:
-            raise InstallError('extract.exefs_mismatch', version=game_version(ctx), modules=', '.join(problems))
+            if not getattr(ctx.options, 'accept_unknown_version', False):
+                raise InstallError('extract.exefs_mismatch', version=game_version(ctx), modules=', '.join(problems))
+            # The check already warned about the same files; the copy here is what the check read.
         if extract.sha256(dest / 'exefs' / 'main.npdm') != expected['exefs_sha256']['main.npdm']:
             rep.warning('warn.npdm_differs', version=game_version(ctx))
 
@@ -526,8 +530,10 @@ class Extract(Step):
                 raise InstallError('extract.romfs_failed', detail=str(e)) from None
         report = json.loads((romfs / 'index.json').read_text(encoding='utf-8'))
         if report['romfs_size'] != expected['romfs']['size'] or report['romfs_sha256'] != expected['romfs']['sha256']:
-            raise InstallError('extract.romfs_mismatch', version=game_version(ctx), size=report['romfs_size'],
-                               sha256=report['romfs_sha256'][:16])
+            if not getattr(ctx.options, 'accept_unknown_version', False):
+                raise InstallError('extract.romfs_mismatch', version=game_version(ctx), size=report['romfs_size'],
+                                   sha256=report['romfs_sha256'][:16])
+            rep.warning('warn.data_accepted', size=report['romfs_size'])
         (dest / 'profile').mkdir(exist_ok=True)
         st = (romfs / 'romfs.bin').stat()
         return {'romfs_size': st.st_size, 'romfs_mtime_ns': st.st_mtime_ns}
@@ -678,11 +684,20 @@ class Compile(Step):
         rep.progress('compile', 'compile', force=True)
         cpu = getattr(ctx, 'cpu', 'v3')
         lib = layout.runtime_lib_for(cpu)
+        # The exe verifies every ExeFS file it loads against hashes baked into it (build_game.py --expected,
+        # runtime/boot.c ldr_read_verified). They must be the files this install holds, not the reference dump: a
+        # player's main.npdm legitimately differs from ours, and the version check above already compared the code.
+        exefs = dest / 'exefs'
+        hashes = {name: extract.sha256(exefs / name) for name in ('main', 'main.npdm', 'rtld', 'sdk')
+                  if (exefs / name).is_file()}
+        expected_install = ctx.temp / 'expected-install.json'
+        expected_install.write_text(json.dumps({'exefs_sha256': hashes}, indent=2) + '\n', encoding='utf-8',
+                                    newline='\n')
         code, log = run_tool(ctx, 'compile', layout.tools / 'build_game.py', [
             '--gen', ctx.temp / 'gen', '--out', build, '--toolchain', layout.llvm, '--cpu', cpu,
             *(['--deps', layout.deps] if layout.deps else []), *(['--sysroot', layout.sysroot] if layout.sysroot else []),
             '--runtime', layout.runtime, *(['--runtime-lib', lib] if lib else ()), '--ninja', layout.ninja,
-            '--version', version_tag(game_version(ctx)), '--expected', layout.expected(game_version(ctx)),
+            '--version', version_tag(game_version(ctx)), '--expected', expected_install,
             '--exefs', dest / 'exefs', '--romfs', dest / 'romfs',
             '--profile', dest / 'profile'], parse)
         exe = build / ('astralchain' + EXE)

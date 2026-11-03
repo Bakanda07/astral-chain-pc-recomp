@@ -363,13 +363,21 @@ def index_romfs(path):
         return sorted(files, key=lambda item: item['path'])
 
 
+# The ExeFS files that identify the game build. main.npdm is the process's metadata (thread priority, stack size,
+# service access), not code: dumps of the same build carry different ones (repacked NSPs, different dumpers), and the
+# runtime checks the fields it uses at start (runtime/boot.c check_npdm). Comparing it would refuse a good dump.
+VERSION_FILES = ('main', 'sdk', 'rtld')
+
+
 def exefs_ok(exefs_dir, expected):
-    """Whether the extracted ExeFS matches the expected hashes; (ok, problems) where problems is the list of
-    differing names (or missing names when the expected file is absent)."""
+    """Whether the extracted ExeFS matches the expected hashes of the code modules; (ok, problems) where problems is the
+    list of differing names (or missing names when the expected file is absent)."""
     if not (exefs_dir / 'main.npdm').exists():
         return False, ['missing ExeFS']
     problems = []
     for name, want in expected.get('exefs_sha256', {}).items():
+        if name not in VERSION_FILES:
+            continue
         path = exefs_dir / name
         if not path.exists() or sha256(path) != want:
             problems.append(name)
@@ -402,6 +410,8 @@ def check_expected(manifest, romfs_report):
         return
     problems = []
     for name, want in expected.get('exefs_sha256', {}).items():
+        if name not in VERSION_FILES:
+            continue
         got = next((f['sha256'] for f in manifest['files'] if f['name'] == name), None)
         if got != want:
             problems.append(name)

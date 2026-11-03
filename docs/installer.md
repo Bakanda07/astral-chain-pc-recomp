@@ -39,10 +39,16 @@ changes nothing game-derived skips the rebuild.
 
 ## Setup steps
 
-1. **Check** before writing anything: the file opens with the keys, its ExeFS matches the 1.0.0 hashes the port was
-   built from, enough space is free on the target disk (about 14 GiB for the install, 4 GiB more for the generated C
-   and the objects), the CPU is at least x86-64-v2 (SSE4.2; with AVX2/FMA the faster `v3` build is used, otherwise the
-   `v2` one), a Vulkan 1.3 GPU exists. Each failure is one clear message.
+1. **Check** before writing anything: the file opens with the keys, its code modules (`main`, `sdk`, `rtld`) match the
+   1.0.0 hashes the port was built from, enough space is free on the target disk (about 14 GiB for the install, 4 GiB
+   more for the generated C and the objects), the CPU is at least x86-64-v2 (SSE4.2; with AVX2/FMA the faster `v3`
+   build is used, otherwise the `v2` one), a Vulkan 1.3 GPU exists. Each failure is one clear message.
+   `main.npdm` is not compared: it is the process's metadata, dumps of the same build carry different ones (repacked
+   NSPs, different dumpers), and the game checks the fields it uses at start (`runtime/boot.c` `check_npdm`); a
+   differing one is a warning.
+   A version mismatch is not a dead end: the window offers **Continue anyway**, which runs the same setup with the
+   check reported as a warning (`--accept-unknown-version` on the command line). The game may then not run or crash;
+   the player decides.
 2. **Extract** ExeFS and RomFS into the install folder, verifying every IVFC level, and compare the hashes with
    `tools/data/expected-v1.0.0.json`.
 3. **Lift** the ExeFS to C (`recomp/gen.py`, `recomp/patches-v0.txt`) into a temp folder next to the installer. The

@@ -44,6 +44,11 @@ def fix_tcl_paths():
                 os.environ[var] = str(tcl / lib)
 
 
+# A failed check the player may carry on past: the window offers the same run again with --accept-unknown-version, and
+# the CLI then reports it as a warning. The game may not run; that is the player's call.
+ACCEPT_ANYWAY = frozenset({'check.base_wrong_version', 'extract.exefs_mismatch', 'extract.romfs_mismatch'})
+
+
 class App:
     def __init__(self, root, ui_lang, layout, run_args=None, rebuild=None):
         self.root, self.layout = root, layout
@@ -56,6 +61,7 @@ class App:
         self.log_entries = []            # events and raw lines of the run, rendered by render_log
         self.bound = []                  # (widget, option, id, params) retranslated on a language switch
         self.vars = {n: tk.StringVar() for n in ('base', 'keys', 'dest')}
+        self.accept_version = False   # the next run carries on past the version check
         self.vars['lang'] = tk.StringVar()
         self.lang_code = default_game_language(ui_lang)
         self.screen = None
@@ -264,6 +270,8 @@ class App:
         self.button(bar, 'ui.close', self.on_close).pack(side='right')
         self.open_button = self.button(bar, 'ui.open_folder', self.open_folder)
         self.open_button.pack(side='right', padx=(0, 8))
+        # Shown only after a version mismatch (refresh_finish): the same run again, past the check.
+        self.retry_button = self.button(bar, 'ui.continue_anyway', self.continue_anyway)
         self.back_button = self.button(bar, 'ui.back', lambda: self.show('form'))
         self.back_button.pack(side='left')
         if self.rebuild:   # a failed or cancelled rebuild: the game starts with the code it has
@@ -311,7 +319,8 @@ class App:
 
     # ---- run ------------------------------------------------------------------------------------------------------
 
-    def start(self):
+    def start(self, accept=False):
+        self.accept_version = accept
         form = self.form()
         problems = form.problems()
         if problems:
@@ -323,7 +332,8 @@ class App:
         # the repository, so `-m installer` would not find the package
         python = Path(sys.executable) if self.layout.dev else self.layout.python
         command = form.command(python, root=self.layout.root if self.layout.dev else None,
-                               temp=self.run_args.get('temp'), verify_hashes=self.run_args.get('verify', False))
+                               temp=self.run_args.get('temp'), verify_hashes=self.run_args.get('verify', False),
+                               accept_version=accept)
         self.begin(command, self.layout.root)
 
     def begin(self, command, cwd):
@@ -488,6 +498,8 @@ class App:
         else:
             err = m.error or ('ui.process_died', {'code': m.exit_code}, None)
             text = self.cat(err[0], **err[1])
+            if err[0] in ACCEPT_ANYWAY:
+                text += '\n\n' + self.cat('ui.continue_anyway_help')
             if m.log_path:
                 text += '\n\n' + self.cat('ui.log_file', path=m.log_path)
         self.finish_text.configure(text=text)
@@ -501,6 +513,16 @@ class App:
             self.open_button.state(['!disabled'])
         else:
             self.open_button.state(['disabled' if not Path(m.dest or '.').is_dir() else '!disabled'])
+        retry = result == 'failed' and m.error is not None and m.error[0] in ACCEPT_ANYWAY
+        if retry and not self.retry_button.winfo_ismapped():
+            self.retry_button.pack(side='right', padx=(0, 8))
+        elif not retry and self.retry_button.winfo_ismapped():
+            self.retry_button.pack_forget()
+
+    def continue_anyway(self):
+        """The version check failed: run the setup again, past it, with the warning the CLI then prints."""
+        self.show('run')
+        self.start(accept=True)
 
     def start_game(self):
         """Starts the game of the install folder and closes the window."""

@@ -173,7 +173,7 @@ class Form:
                     found.append(f'ui.missing_{name}')
         return found
 
-    def command(self, python, root=None, temp=None, verify_hashes=False):
+    def command(self, python, root=None, temp=None, verify_hashes=False, accept_version=False):
         cmd = [str(python), '-m', 'installer']
         for flag, value in (('--base', self.base), ('--keys', self.keys), ('--lang', self.lang),
                             ('--dest', self.dest)):
@@ -185,6 +185,8 @@ class Form:
             cmd += ['--temp', str(temp)]
         if verify_hashes:
             cmd.append('--verify')
+        if accept_version:   # the window's "Continue anyway" after a version mismatch
+            cmd.append('--accept-unknown-version')
         return cmd
 
 
