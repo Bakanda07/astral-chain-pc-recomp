@@ -44,7 +44,6 @@ extern "C" {
 #include "mods.h"
 #include "perfmon.h"
 #include "platform/platform.h"
-#include "sysinfo.h"
 #include "ui/menu.h"
 #include "ui_text.h"
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
@@ -52,6 +51,8 @@ void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void vk_queue_lock(void);
 void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
+int rt_patch_set(const char *name);
+float vk_render_scale(void);
 double frame_step_limit_hz(void);
 extern const int rt_game_version;
 extern const char rt_port_version[];
@@ -374,7 +375,7 @@ extern "C" void menu_vk_release(void) {
 // TOTK_MENU_TEST_SET=<frame>:<key>=<value>[,<key>=<value>...][;<frame>:...]: cfg_set of each key (TOTK_ prefix
 // optional) at that presented frame; changes live settings with no input, menu open or not. totk.ini is written only by
 // the pseudo-key SAVE=1 (cfg_save, as a row change does; a failed write shows the menu's save note).
-enum { TAB_SCREEN, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_AMIIBO, TAB_MENU, TAB_ADVANCED, TAB_MODS, TAB_CHEATS, TAB_COUNT };
+enum { TAB_SCREEN, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_AMIIBO, TAB_MENU, TAB_MODS, TAB_CHEATS, TAB_COUNT };
 enum { TEST_PAGE_FRAMES = 30, TEST_SETS = 16 };
 struct TestSet { uint64_t frame; char key[64], value[64]; };
 static struct {
@@ -484,37 +485,20 @@ static void row_window_size(void) {
     opt_choice_list("AC_WINDOW_SIZE", UI_MENU_WINDOW_SIZE, pv, pn, n, UI_MENU_WINDOW_SIZE_DESC);
 }
 
-// The game resolution (resolution.c): 16:9 sizes from its smallest, 1280x720 (for weak GPUs), up, the common 21:9 and
-// 32:9 monitor sizes and the 16:10 screens of the Steam Deck, handhelds and laptops (the camera and the HUD follow
-// another shape, resolution.c res_init; the installer lays the HUD out for each, installer/steps.py ASPECT_SIZES), and
-// the current value when it is another size.
-static void row_output_res(void) {
-    static const char *const vals[] = {"1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160",
-                                       "2560x1080", "3440x1440", "3840x1600", "5120x2160", "3840x1080", "5120x1440",
-                                       "1280x800", "1680x1050", "1920x1200", "2560x1600"};
-    enum { N = sizeof vals / sizeof *vals };
-    char shown[N][32];
-    const char *names[N];
-    for (int i = 0; i < N; i++) {
-        int w = 0, h = 0;
-        sscanf(vals[i], "%dx%d", &w, &h);
-        snprintf(shown[i], sizeof shown[i], "%d × %d", w, h);   // U+00D7, the multiplication sign
-        names[i] = shown[i];
-    }
-    opt_choice_list("AC_OUTPUT_RES", UI_MENU_OUTPUT_RES, vals, names, N, UI_MENU_OUTPUT_RES_DESC);
+// The game's logical render size (resolution.c): 1062p is the community mod's 1888x1062; 1080p is the engine's own
+// maximum (1920x1080). AC_SSAA then makes the render targets larger than that, which is how the picture reaches 1440p.
+static void row_game_res(void) {
+    static const char *const vals[] = {"1062p", "1080p"};
+    static const char *const names[] = {"1062p (mod)", "1080p (engine max)"};
+    opt_choice_list("AC_GAME_RES", UI_MENU_OUTPUT_RES, vals, names, 2, UI_MENU_OUTPUT_RES_DESC);
 }
 
+// AC_SSAA (vk_texture.c): render targets made larger on each side, the emulator-style resolution scale. The game keeps
+// its logical size; the window shows the larger picture.
 static void row_render_scale(void) {
-    static const char *const vals[] = {"game", "50", "67", "75", "100", "125", "150", "200"};
-    enum { N = sizeof vals / sizeof *vals };
-    char shown[N][32];
-    const char *names[N];
-    names[0] = menu_text(UI_MENU_RENDER_SCALE_GAME);
-    for (int i = 1; i < N; i++) {
-        snprintf(shown[i], sizeof shown[i], "%s %%", vals[i]);
-        names[i] = shown[i];
-    }
-    opt_choice_list("AC_RENDER_SCALE", UI_MENU_RENDER_SCALE, vals, names, N, UI_MENU_RENDER_SCALE_DESC);
+    static const char *const vals[] = {"1", "1.333", "1.5", "2"};
+    static const char *const names[] = {"Off (1x)", "1.33x (1440p)", "1.5x (1620p)", "2x (2160p)"};
+    opt_choice_list("AC_SSAA", UI_MENU_RENDER_SCALE, vals, names, 4, UI_MENU_RENDER_SCALE_DESC);
 }
 
 static void row_shadow_res(void) {
@@ -654,9 +638,9 @@ static void tab_screen(float scale) {
     static const UiTextId perf[] = {UI_MENU_PERF_OFF, UI_MENU_PERF_FPS, UI_MENU_PERF_FULL};
     opt_choice("AC_PERF_OVERLAY", UI_MENU_PERF_OVERLAY, perf, 3, UI_MENU_PERF_OVERLAY_DESC);
     opt_group(UI_MENU_GRAPHICS);
-    row_output_res();
+    row_game_res();
     row_render_scale();
-    row_shadow_res();
+    if (rt_patch_set("shadow") >= 0) row_shadow_res();
     static const UiTextId up[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
     opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, up, 2, UI_MENU_UPSCALER_DESC);
     opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
@@ -852,166 +836,9 @@ static void tab_menu(float scale) {
     opt_end();
 }
 
-// ---- Advanced: the testing and troubleshooting keys, the bug report helpers and the reset of every setting
-
-// A thread count with no fixed default: Automatic (unset), then the common counts.
-static void row_threads(const char *key, UiTextId label, UiTextId desc) {
-    static const char *const vals[] = {"", "1", "2", "4", "6", "8", "12", "16", "24", "32", "48", "64"};
-    enum { N = sizeof vals / sizeof *vals };
-    const char *names[N];
-    names[0] = menu_text(UI_MENU_AUTO);
-    for (int i = 1; i < N; i++) names[i] = vals[i];
-    opt_choice_list(key, label, vals, names, N, desc);
-}
-
-// A free-text key shown as Off (unset) / On (value set): On writes on_value, any set value reads as On.
-static void row_set_or_not(const char *key, UiTextId label, UiTextId desc, const char *on_value) {
-    const char *vals[] = {"", on_value}, *names[] = {menu_text(UI_MENU_OFF), menu_text(UI_MENU_ON)};
-    opt_choice_list(key, label, vals, names, 2, desc, *cfg_value(key) ? 1 : 0);
-}
-
-static bool validation_layer_present(void) {
-    static int have = -1;
-    if (have < 0) {
-        uint32_t n = 0;
-        vkEnumerateInstanceLayerProperties(&n, nullptr);
-        VkLayerProperties *l = (VkLayerProperties *)calloc(n ? n : 1, sizeof *l);
-        if (l && vkEnumerateInstanceLayerProperties(&n, l) >= 0)
-            for (uint32_t i = 0; i < n && have <= 0; i++) have = !strcmp(l[i].layerName, "VK_LAYER_KHRONOS_validation");
-        free(l);
-        if (have < 0) have = 0;
-    }
-    return have != 0;
-}
-
-// Every setting the menu shows back to its default (the environment's keys stay), written to totk.ini.
-static void reset_all(void) {
-    const char *keys[128];
-    int n = 0;
-    for (const CfgMeta *m; n < 128 && (m = cfg_meta_at(n)); n++) keys[n] = m->key;
-    int done = cfg_reset(keys, n);
-    opt_save_soon();
-    rt_log("menu: reset %d settings to their defaults", done);
-}
-
-// A button's result shown in its value for a few seconds: 1 done (done_text), -1 failed.
-struct ActionNote { uint64_t until; int result; };
-
-static const char *action_value(const ActionNote &a, UiTextId done_text) {
-    if (!a.result || plat_now_ns() > a.until) return "";
-    return menu_text(a.result > 0 ? done_text : UI_MENU_ACTION_FAILED);
-}
-
-static void action_done(ActionNote &a, bool ok) { a = {plat_now_ns() + 3000000000ull, ok ? 1 : -1}; }
-
-static void tab_advanced(float scale) {
-    static ActionNote copy_note, log_note;
-    opt_begin("##advanced", scale);
-    opt_text(UI_MENU_ADV_WARNING, true);
-
-    opt_group(UI_MENU_GROUP_SCHED);
-    static const UiTextId preempt[] = {UI_MENU_PREEMPT_OFF, UI_MENU_PREEMPT_ON, UI_MENU_PREEMPT_INHERIT};   // 0|1|2
-    opt_choice("AC_ASYNC_PREEMPT", UI_MENU_ASYNC_PREEMPT, preempt, 3, UI_MENU_ASYNC_PREEMPT_DESC);
-    opt_toggle("AC_REPLAY_ASYNC", UI_MENU_REPLAY_ASYNC, UI_MENU_REPLAY_ASYNC_DESC);
-    opt_toggle("AC_TIMER_1MS", UI_MENU_TIMER_1MS, UI_MENU_TIMER_1MS_DESC);
-
-    opt_group(UI_MENU_GROUP_SHADERS);
-    static const UiTextId wait[] = {UI_MENU_PIPE_WAIT_DEFAULT, UI_MENU_PIPE_WAIT_DRAW};
-    opt_choice("AC_PIPE_WAIT", UI_MENU_PIPE_WAIT, wait, 2, UI_MENU_PIPE_WAIT_DESC);
-    static const UiTextId skip[] = {UI_MENU_PIPE_SKIP_STRICT, UI_MENU_PIPE_SKIP_ANY, UI_MENU_PIPE_SKIP_FULLSCREEN};
-    opt_choice("AC_PIPE_SKIP", UI_MENU_PIPE_SKIP, skip, 3, UI_MENU_PIPE_SKIP_DESC);
-    opt_toggle("AC_LIB_PREBUILD", UI_MENU_LIB_PREBUILD, UI_MENU_LIB_PREBUILD_DESC);
-    row_threads("AC_LIB_PREBUILD_THREADS", UI_MENU_LIB_PREBUILD_THREADS, UI_MENU_LIB_PREBUILD_THREADS_DESC);
-    opt_toggle("AC_PIPE_PREBUILD", UI_MENU_PIPE_PREBUILD, UI_MENU_PIPE_PREBUILD_DESC);
-    row_threads("AC_PREWARM_XLATE", UI_MENU_PREWARM_XLATE, UI_MENU_PREWARM_XLATE_DESC);
-    opt_toggle("AC_GPL", UI_MENU_GPL, UI_MENU_GPL_DESC);
-
-    opt_group(UI_MENU_GROUP_TEXMEM);
-    static const UiTextId astc[] = {UI_MENU_ASTC_AUTO, UI_MENU_ASTC_GPU, UI_MENU_ASTC_NATIVE, UI_MENU_ASTC_CPU};
-    opt_choice("AC_ASTC", UI_MENU_ASTC, astc, 4, UI_MENU_ASTC_DESC);
-    static const UiTextId mem[] = {UI_MENU_MEMORY_AUTO, UI_MENU_MEMORY_IMPORT, UI_MENU_MEMORY_MIRROR,
-                                   UI_MENU_MEMORY_VERIFY};
-    opt_choice("AC_MEMORY", UI_MENU_MEMORY, mem, 4, UI_MENU_MEMORY_DESC);
-    opt_toggle("AC_TEX_ALIAS", UI_MENU_TEX_ALIAS, UI_MENU_TEX_ALIAS_DESC);
-    opt_slider("AC_TEX_VRAM_PRESSURE", UI_MENU_TEX_VRAM_PRESSURE, 0, 100, UI_MENU_TEX_VRAM_PRESSURE_DESC, 1, "%.0f%%");
-    opt_toggle("AC_ASTC_BC", UI_MENU_ASTC_BC, UI_MENU_ASTC_BC_DESC);
-
-    opt_group(UI_MENU_GROUP_FIXES);
-    opt_toggle("AC_LOD_GUARD", UI_MENU_LOD_GUARD, UI_MENU_LOD_GUARD_DESC);
-    opt_toggle("AC_FIX_C0", UI_MENU_FIX_C0, UI_MENU_FIX_C0_DESC);
-    opt_toggle("AC_FIX_ZERO", UI_MENU_FIX_ZERO, UI_MENU_FIX_ZERO_DESC);
-    opt_toggle("AC_BIND_SKIP", UI_MENU_BIND_SKIP, UI_MENU_BIND_SKIP_DESC);
-    opt_toggle("AC_SHADER_MEMO", UI_MENU_SHADER_MEMO, UI_MENU_SHADER_MEMO_DESC);
-    opt_toggle("AC_PIPE_MEMO", UI_MENU_PIPE_MEMO, UI_MENU_PIPE_MEMO_DESC);
-    opt_toggle("AC_TEX_MEMO", UI_MENU_TEX_MEMO, UI_MENU_TEX_MEMO_DESC);
-    opt_toggle("AC_DESC_TEMPLATE", UI_MENU_DESC_TEMPLATE, UI_MENU_DESC_TEMPLATE_DESC);
-    opt_toggle("AC_PUSH_SKIP", UI_MENU_PUSH_SKIP, UI_MENU_PUSH_SKIP_DESC);
-    opt_slider("AC_SPLIT_DRAWS", UI_MENU_SPLIT_DRAWS, 0, 1000, UI_MENU_SPLIT_DRAWS_DESC, 8, "%.0f");
-
-    opt_group(UI_MENU_GROUP_VULKAN);
-    if (!validation_layer_present() && !cfg_bool("AC_VK_VALIDATION")) opt_disable_next(UI_MENU_VK_VALIDATION_MISSING);
-    opt_toggle("AC_VK_VALIDATION", UI_MENU_VK_VALIDATION, UI_MENU_VK_VALIDATION_DESC);
-    static const UiTextId dyn[] = {UI_MENU_AUTO, UI_MENU_OFF, UI_MENU_ON};   // unset, 0, 1
-    opt_choice("AC_VK_DYN_VERTEX", UI_MENU_VK_DYN_VERTEX, dyn, 3, UI_MENU_VK_DYN_VERTEX_DESC);
-    opt_choice("AC_VK_DYN_A2C", UI_MENU_VK_DYN_A2C, dyn, 3, UI_MENU_VK_DYN_A2C_DESC);
-    opt_toggle("AC_VK_SUBGROUP_PIN", UI_MENU_VK_SUBGROUP_PIN, UI_MENU_VK_SUBGROUP_PIN_DESC);
-
-    opt_group(UI_MENU_GROUP_DIAG);
-    row_set_or_not("AC_TRACE", UI_MENU_TRACE, UI_MENU_TRACE_DESC, "perf");
-    opt_toggle("AC_FLIGHT", UI_MENU_FLIGHT, UI_MENU_FLIGHT_DESC);
-    opt_slider("AC_FLIGHT_SPIKE_MS", UI_MENU_FLIGHT_SPIKE_MS, 20, 1000, UI_MENU_FLIGHT_SPIKE_MS_DESC, 10, "%.0f");
-    static char rec_path[600];   // the recording goes beside the log
-    if (!rec_path[0]) {
-        char dir[512];
-        snprintf(rec_path, sizeof rec_path, "%s/input-record.txt", sysinfo_log_folder(dir, sizeof dir) ? dir : ".");
-    }
-    row_set_or_not("AC_INPUT_RECORD", UI_MENU_INPUT_RECORD, UI_MENU_INPUT_RECORD_DESC, rec_path);
-    if (opt_button("##open_log", UI_MENU_OPEN_LOG, UI_MENU_OPEN_LOG_DESC, action_value(log_note, UI_MENU_OPEN_LOG))) {
-        char dir[512];
-        bool ok = sysinfo_log_folder(dir, sizeof dir) && plat_open_folder(dir);
-        if (!ok) action_done(log_note, false);   // success shows as the opened folder
-    }
-    if (opt_button("##copy_info", UI_MENU_COPY_INFO, UI_MENU_COPY_INFO_DESC,
-                   action_value(copy_note, UI_MENU_COPY_INFO_DONE))) {
-        static char text[16384];
-        action_done(copy_note, sysinfo_text(text, sizeof text) > 0 && plat_clipboard_set(text));
-    }
-    bool ask = opt_button("##reset", UI_MENU_RESET, UI_MENU_RESET_DESC);
-    opt_end();
-    if (ask) ImGui::OpenPopup("##reset_confirm");   // at the level BeginPopupModal looks it up
-
-    // the confirmation, over the menu; Cancel has the cursor first
-    g_modal = false;
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    if (ImGui::BeginPopupModal("##reset_confirm", nullptr,
-                               ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize)) {
-        g_modal = true;
-        ImGui::TextUnformatted(menu_text(UI_MENU_RESET_CONFIRM));
-        ImGui::Spacing();
-        const char *yes = menu_text(UI_MENU_RESET_YES), *no = menu_text(UI_MENU_RESET_NO);
-        const ImGuiStyle &st = ImGui::GetStyle();
-        float bw = fmaxf(ImGui::CalcTextSize(yes).x, ImGui::CalcTextSize(no).x) + st.FramePadding.x * 4;
-        bool close = false;
-        if (ImGui::Button(no, ImVec2(bw, 0))) close = true;
-        if (ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
-        ImGui::SameLine();
-        if (ImGui::Button(yes, ImVec2(bw, 0))) {
-            reset_all();
-            close = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))
-            close = true;
-        if (close) {
-            ImGui::CloseCurrentPopup();
-            opt_focus_key("##reset");   // back on the row it came from
-        }
-        ImGui::EndPopup();
-    }
-}
-
 static const UiTextId kTabNames[TAB_COUNT] = {UI_MENU_TAB_SCREEN,   UI_MENU_TAB_GAME,   UI_MENU_TAB_SOUND,
                                               UI_MENU_TAB_CONTROLS, UI_MENU_TAB_AMIIBO, UI_MENU_TAB_MENU,
-                                              UI_MENU_TAB_ADVANCED, UI_MENU_TAB_MODS,   UI_MENU_TAB_CHEATS};
+                                              UI_MENU_TAB_MODS,     UI_MENU_TAB_CHEATS};
 static int g_tab;               // the tab shown
 static int g_tab_request = -1;  // select this tab at the next layout; -1 none
 static int g_focus_page = -1;   // this tab's first row takes the cursor once it is shown; -1 none
@@ -1145,7 +972,6 @@ static void layout_menu(uint32_t w, uint32_t h, float scale) {
                 }
                 restart_confirm();
                 break;
-            case TAB_ADVANCED: tab_advanced(scale); break;
             }
             ImGui::EndTabItem();
         }
@@ -1167,7 +993,7 @@ static void layout_menu(uint32_t w, uint32_t h, float scale) {
     ImGui::SameLine();
     if (ImGui::Button(quit, ImVec2(bw, 0))) gfx_window_request_close();
     bool was_modal = g_modal || binds_modal();
-    if (g_tab != TAB_ADVANCED && g_tab != TAB_CONTROLS) g_modal = false;
+    if (g_tab != TAB_CONTROLS) g_modal = false;
     if (!was_modal && (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)))
         set_open(0);
     ImGui::End();
@@ -1296,19 +1122,17 @@ static float perf_gb(float mb) { return mb < 0 ? -1 : mb / 1024; }
 static void perf_picture(const MenuTarget *t, const ImVec4 &c) {
     unsigned out[2], scene[2];
     res_sizes(out, scene);
+    float rs = vk_render_scale();
+    unsigned rw = (unsigned)lroundf(scene[0] * rs), rh = (unsigned)lroundf(scene[1] * rs);
     char v[6][64];
     snprintf(v[0], sizeof v[0], menu_text(UI_MENU_OV_FMT_SIZE), t->width, t->height);
     snprintf(v[1], sizeof v[1], menu_text(UI_MENU_OV_FMT_SIZE), (unsigned)t->image_w, (unsigned)t->image_h);
-    snprintf(v[2], sizeof v[2], menu_text(UI_MENU_OV_FMT_SCENE), scene[0], scene[1], scene[0] * 100.0 / out[0]);
+    snprintf(v[2], sizeof v[2], menu_text(UI_MENU_OV_FMT_SCENE), rw, rh, rw * 100.0 / out[0]);
     if (t->scaler == 2) {
         int s = cfg_int("AC_SHARPNESS");
         snprintf(v[3], sizeof v[3], menu_text(UI_MENU_OV_FMT_FSR), s < 0 ? 0 : s > 100 ? 100 : s);
     } else {
-        // FSR enlarges only (vk_fsr_record): an image larger than the window is shrunk by the blit even with FSR selected
-        int down = t->scaler == 1 && !strcmp(cfg_value("AC_UPSCALER"), "fsr") &&
-                   (t->image_w > (int)t->width || t->image_h > (int)t->height);
-        snprintf(v[3], sizeof v[3], "%s",
-                 menu_text(down ? UI_MENU_OV_SCALE_DOWN : t->scaler ? UI_MENU_OV_SCALE_BILINEAR : UI_MENU_OV_SCALE_NONE));
+        snprintf(v[3], sizeof v[3], "%s", menu_text(t->scaler ? UI_MENU_OV_SCALE_BILINEAR : UI_MENU_OV_SCALE_NONE));
     }
     double hz = frame_step_limit_hz();
     snprintf(v[4], sizeof v[4], "%s", menu_text(UI_MENU_OV_NONE));
