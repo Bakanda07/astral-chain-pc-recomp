@@ -2113,6 +2113,49 @@ static int pipe_memo_on(void) {
     return PM.on;
 }
 
+// AC_SKIP_VS / AC_SKIP_FS: comma-separated shader hashes from a dump's passes.txt. Unlike AC_SKIP_PROG (a program
+// serial that can differ between runs), these name the actual shader the draw uses.
+static int skip_shader(const GfxShader *vs, const GfxShader *fs) {
+    static uint64_t vsh[4], fsh[4];
+    static int nv, nf, init;
+    static int said_vs, said_fs;
+    if (!init) {
+        init = 1;
+        for (const char *p = cfg_get("AC_SKIP_VS"); p && *p && nv < 4;) {
+            char *q;
+            uint64_t h = strtoull(p, &q, 16);
+            if (q == p) break;
+            vsh[nv++] = h;
+            for (p = q; *p == ',' || *p == ' '; p++) {}
+        }
+        for (const char *p = cfg_get("AC_SKIP_FS"); p && *p && nf < 4;) {
+            char *q;
+            uint64_t h = strtoull(p, &q, 16);
+            if (q == p) break;
+            fsh[nf++] = h;
+            for (p = q; *p == ',' || *p == ' '; p++) {}
+        }
+        if (nv || nf) rt_log("vk_exec: skipping draws by shader hash (%d vs, %d fs)", nv, nf);
+    }
+    if (vs) {
+        uint64_t h = vk_dump_shader_hash(vs);
+        for (int i = 0; i < nv; i++)
+            if (h == vsh[i]) {
+                if (!said_vs) said_vs = 1, rt_log("vk_exec: skipped a draw by VS %016llx", (unsigned long long)h);
+                return 1;
+            }
+    }
+    if (fs) {
+        uint64_t h = vk_dump_shader_hash(fs);
+        for (int i = 0; i < nf; i++)
+            if (h == fsh[i]) {
+                if (!said_fs) said_fs = 1, rt_log("vk_exec: skipped a draw by FS %016llx", (unsigned long long)h);
+                return 1;
+            }
+    }
+    return 0;
+}
+
 // Pass, shaders, pipeline, fixed state and resources for a draw. 0: the draw is skipped.
 static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (ex->render_disabled) return 0;
@@ -2129,6 +2172,12 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     VkRect2D sc = vk_exec_scissor(ex);
     if (!sc.extent.width || !sc.extent.height) return 0;
     if (!ex->prog) return warn_once(W_PROGRAM, "a draw without a bound program is skipped"), 0;
+    static int skip_prog = -2;
+    if (skip_prog == -2) {
+        const char *e = cfg_get("AC_SKIP_PROG");
+        skip_prog = e && *e ? atoi(e) : 0;
+    }
+    if (skip_prog > 0 && ex->prog->serial == (uint64_t)skip_prog) return 0;
     int has_vs, has_fs, vs_wait = 0, fs_wait = 0, memo = shader_memo_on();
     const GfxShader *vs, *fs;
     uint32_t gen = memo ? vk_texture_slots_gen() : 0;   // before shader_for, whose lookups may bump it
@@ -2148,6 +2197,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
             memo_key(ex, gen, &SM.k), SM.vs = vs, SM.fs = fs, SM.has_fs = has_fs, SM.valid = 1;
     }
     if (!has_vs) return warn_once(W_NO_VS, "a draw with a program that has no vertex stage is skipped"), 0;
+    if (skip_shader(vs, fs)) return 0;
     // A draw into a target the previous frame did not render (or into none) waits for a pending shader or pipeline:
     // one-shot draws (volumes and LUTs generated once, later only sampled) would leave their target empty for the
     // session. A draw into per-frame targets is skipped until they are ready and comes back next frame.
@@ -2162,6 +2212,23 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (vk_dlaa_skip_draw(ex, fs)) return 0;   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
+    // AC_FORCE_BLEND=<prog>: debug switch, the enemy-death effect (prog 268) is opaque at 1x and 2x; force
+    // SRC_ALPHA/ONE_MINUS_SRC_ALPHA to see whether its transparency is what is missing.
+    static int force_blend = -2;
+    if (force_blend == -2) {
+        const char *e = cfg_get("AC_FORCE_BLEND");
+        force_blend = e && *e ? atoi(e) : 0;
+    }
+    if (force_blend > 0 && ex->prog && ex->prog->serial == (uint64_t)force_blend) {
+        s.color.blend_en = 0x1;
+        s.blend[0].target = 0;
+        s.blend[0].src_rgb = NVN_BLEND_FUNC_SRC_ALPHA;
+        s.blend[0].dst_rgb = NVN_BLEND_FUNC_ONE_MINUS_SRC_ALPHA;
+        s.blend[0].src_a = NVN_BLEND_FUNC_ONE;
+        s.blend[0].dst_a = NVN_BLEND_FUNC_ZERO;
+        s.blend[0].eq_rgb = NVN_BLEND_EQUATION_ADD;
+        s.blend[0].eq_a = NVN_BLEND_EQUATION_ADD;
+    }
     s.vs = vs, s.fs = fs;
     s.feedback = (uint8_t)((fbl & 0xff ? 1 : 0) | (fbl & 0x100 ? 2 : 0));
     s.prim = (uint8_t)prim;
@@ -2237,7 +2304,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (fbl & ex->fb_dirty) feedback_barrier(ex);
     feedback_written(ex, &s);
     bind_vertex_buffers(ex);
-    if (vk_dump_armed) vk_dump_draw(ex, &s, p, info);
+    vk_dump_draw(ex, &s, p, info);
     if (vk_hdr_track) vk_hdr_draw(ex, info);
     vk_exec_oq_draw(ex);
     return 1;
@@ -2279,6 +2346,7 @@ static void op_draw(VkExec *ex, const p_draw *d) {
         vkCmdDraw(ex->cb, n, inst, first, (uint32_t)d->base_instance);
     }
     ex->recorded++;
+    if (vk_dump_armed) vk_dump_after_draw(ex, "arrays", n, inst, first, 0, 0);
 }
 
 // Primitive restart of an indexed draw. NVN restarts strips wherever an index equals the SetPrimitiveRestart value;
@@ -2334,6 +2402,10 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
     vkCmdDrawIndexed(ex->cb, (uint32_t)d->count, d->instances > 0 ? (uint32_t)d->instances : 1, 0, d->base_vertex,
                      (uint32_t)d->base_instance);
     ex->recorded++;
+    if (vk_dump_armed)
+        vk_dump_after_draw(ex, d->itype == NVN_INDEX_TYPE_UNSIGNED_SHORT ? "indexed16"
+                               : d->itype == NVN_INDEX_TYPE_UNSIGNED_INT ? "indexed32" : "indexed8",
+                           d->count, d->instances > 0 ? d->instances : 1, 0, d->base_vertex, d->ibuf);
 }
 
 // DrawElementsIndirect: the arguments are read by the GPU from the pool buffer (they are often written by an earlier
@@ -2355,6 +2427,7 @@ static void op_draw_idx_ind(VkExec *ex, const p_draw_idx_ind *d) {
     vkCmdBindIndexBuffer(ex->cb, ib.buffer, ib.offset, d->itype == NVN_INDEX_TYPE_UNSIGNED_SHORT ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexedIndirect(ex->cb, ip.buffer, ip.offset, 1, sizeof(VkDrawIndexedIndirectCommand));
     ex->recorded += 2;
+    if (vk_dump_armed) vk_dump_after_draw(ex, "indirect", 0, 0, 0, 0, d->ibuf);
     vk_mem_count(ip.cls, VK_MUSE_IND, sizeof(VkDrawIndexedIndirectCommand));
     VK_MEM_BOUND(ip);
     VK_MEM_BOUND(ib);
@@ -2480,6 +2553,7 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
         case 4: memcpy(&ex->pipe.poly, b->bytes, sizeof ex->pipe.poly); break;
         case 5: memcpy(&ex->pipe.ds, b->bytes, sizeof ex->pipe.ds); break;
         case 6: memcpy(&ex->point_size, b->bytes, sizeof ex->point_size); break;
+        case 7: memcpy(&ex->pipe.alpha_ref, b->bytes, sizeof ex->pipe.alpha_ref); break;
         }
         break;
     }

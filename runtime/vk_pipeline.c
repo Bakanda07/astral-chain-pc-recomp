@@ -553,11 +553,20 @@ void vk_pipeline_answers(const VkPipeState *s, GfxShaderAnswers *vs, GfxShaderAn
             if (a.fmt) vk_vertex_format((int)a.fmt, &type);
             vs->attr_type[i] = (uint8_t)type;
         }
-    if (fs)
+    if (fs) {
         for (int i = 0; i < 8; i++) {
             VkFormat f = target_format(s->color_fmt[i], NULL, NULL);
             fs->frag_out_type[i] = (uint8_t)(f == VK_FORMAT_UNDEFINED ? GFX_TYPE_FLOAT : format_type(f));
         }
+        // Maxwell's fixed-function alpha test (NVN ColorState SetAlphaTest + SetAlphaRef) has no Vulkan equivalent: the
+        // translator discards in the shader, as Ryujinx does (EmitterContext.FinalizeReturn). ALWAYS is the default and
+        // leaves the shader as it is; the reference only matters with a comparing function.
+        unsigned af = s->color.alpha_func;
+        if (af >= NVN_ALPHA_FUNC_NEVER && af < NVN_ALPHA_FUNC_ALWAYS) {
+            fs->alpha_func = (uint8_t)af;
+            fs->alpha_ref = af == NVN_ALPHA_FUNC_NEVER ? 0.0f : s->alpha_ref;
+        }
+    }
 }
 
 // ---- vertex input (pipeline state, or vkCmdSetVertexInputEXT)
@@ -1908,6 +1917,7 @@ static void rec_fill(KeyRec *r, const VkPipeState *s) {
     r->s = *s;
     r->s.vs = r->s.fs = NULL;
     r->s.prim_restart = 0;   // dynamic state: the same pipeline either way
+    r->s.alpha_ref = 0;      // part of the fragment shader's input id already
 }
 
 // A pipeline was built for a draw: queue its record for the file. Caller holds P.lock.

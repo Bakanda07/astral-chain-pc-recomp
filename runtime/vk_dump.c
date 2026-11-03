@@ -1,5 +1,6 @@
 // AC_DUMP=<frame>: a frame dump for the Vulkan back end, which RenderDoc cannot capture (it hides
-// VK_EXT_external_memory_host). Between presents frame-1 and frame, the replay's command buffers also copy, after each
+// VK_EXT_external_memory_host). F12 arms the next full frame at runtime (vk_dump_request), for an artifact whose frame
+// is not known in advance. Between presents frame-1 and frame, the replay's command buffers also copy, after each
 // render pass, its colour and depth targets and, after each dispatch, the storage images it writes into host buffers;
 // the completion thread turns them into 8-bit PNGs once the submission is done. 3D textures (LUTs, volumes) sampled or
 // written in the frame are copied once each, slices side by side. Files in AC_DUMP_DIR (default "dump"):
@@ -23,6 +24,12 @@
 // before the submission (vk_exec_draw.c upd_note).
 // AC_DUMP_SKIP_RUNS=1: a render pass with the same targets as the render pass before it is logged but not copied
 // (the terrain decals draw one pass each into the G-buffer and would use up both caps).
+// AC_DUMP_AUTO=<vs>[:<fs>]: arms the next frame automatically when a draw with these shader hashes is recorded, so one
+// playthrough captures an effect whose frame is not known; F12 does the same on demand.
+// AC_DUMP_DRAWS=<seq>: in the dumped frame, the render pass with that sequence number is split after every draw and its
+// depth target (its first colour target when it has none) is copied as pass_<seq>_d<draw>_...: the draw that puts a
+// shape into the scene is found in one session. Every draw of the dumped frame also logs a "draw N:" line with its
+// shaders' hashes, vertex count, instances, first/base vertex, index buffer and vertex streams.
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -37,9 +44,9 @@
 #include "platform/platform.h"
 
 #define MAX_PASSES 400
-#define PNG_CAP (2ull << 30)
+#define PNG_CAP (4ull << 30)
 #define INFLIGHT_CAP (3ull << 30)   // host buffers waiting for their submission
-#define MAX_ENTS 48                 // distinct pipeline + texture sets listed per pass
+#define MAX_ENTS 160                // distinct pipeline + texture sets listed per pass
 #define MAX_LUTS 256                // 3D textures and small sampled 8-bit 2D textures dumped per frame
 #define TEX2D_CAP (1u << 20)        // texels of a sampled 2D texture that is dumped
 
@@ -55,6 +62,12 @@ static uint64_t last_targets;          // targets_sig of the last render pass; 0
 static const char *pass_skip;          // why the current pass copies nothing, or NULL
 static volatile int64_t png_bytes, inflight;
 static PlatMutex rec_lock = PLAT_MUTEX_INIT, img_lock = PLAT_MUTEX_INIT;
+static int dump_conf;                   // dump_config ran (AC_DUMP_DIR, ... parsed even without AC_DUMP)
+static uint64_t auto_vs, auto_fs;       // AC_DUMP_AUTO: arm on a draw with these shader hashes
+static int auto_done;
+static int draws_pass = -1;             // AC_DUMP_DRAWS: pass split after every draw, or -1
+static int splitting;                   // vk_dump_after_draw is ending the pass: vk_dump_pass_end logs nothing
+static const GfxShader *last_vs, *last_fs;   // shaders of the draw being recorded (vk_dump_draw -> vk_dump_after_draw)
 
 // ---- formats
 
@@ -486,6 +499,22 @@ static uint64_t shader_hash(const GfxShader *s) {
     return h;
 }
 
+// The 64-bit FNV hash the dump writes as sh_<hash>.spv and prints in passes.txt, without writing a file: the debug
+// AC_SKIP_FS / AC_SKIP_VS switches match the hashes the user reads from a dump.
+uint64_t vk_dump_shader_hash(const GfxShader *s) {
+    static struct { const GfxShader *s; uint64_t h; } tab[1024];
+    static int n;
+    if (!s) return 0;
+    for (int i = 0; i < n; i++)
+        if (tab[i].s == s) return tab[i].h;
+    uint64_t words = 0, h = 0xcbf29ce484222325ull;
+    const uint32_t *w = gfx_shader_spirv(s, &words);
+    const uint8_t *b = (const uint8_t *)w;
+    for (uint64_t i = 0; i < words * 4; i++) h = (h ^ b[i]) * 0x100000001b3ull;
+    if (n < 1024) tab[n].s = s, tab[n].h = h, n++;
+    return h;
+}
+
 // Per pass: distinct pipeline + texture sets, draws, 3D textures to copy at its end.
 typedef struct { VkPipeline p; uint64_t th; int draws; char *text; } Ent;
 static Ent ents[MAX_ENTS];
@@ -667,10 +696,30 @@ static uint64_t bindings_hash(const VkExec *ex, const VkPipeInfo *info) {
     return h;
 }
 
+static void dump_arm(const char *why);
+
 void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info) {
+    if (!vk_dump_armed && (!auto_vs || auto_done)) return;
+    int arm = 0;
     plat_mutex_lock(&rec_lock);
-    if (!active()) goto out;
+    if (!active()) {
+        if (!auto_done && auto_vs && s->vs && (uint64_t)shader_hash(s->vs) == auto_vs &&
+            (!auto_fs || (s->fs && (uint64_t)shader_hash(s->fs) == auto_fs))) {
+            auto_done = 1;
+            arm = 1;
+        }
+        goto out;
+    }
     pass_draws++;
+    last_vs = s->vs, last_fs = s->fs;
+    if (dump_ubo) {
+        const p_bind_buf *c14 = &ex->ubo[0][11];   // slot 14 - 3
+        float first[4] = {0, 0, 0, 0};
+        if (c14->addr && c14->size >= sizeof first) memcpy(first, (const void *)(uintptr_t)c14->addr, sizeof first);
+        fprintf(passes_f, "  draw %d prog %llu c14 %#llx+%#llx first %.4g %.4g %.4g %.4g\n", pass_draws,
+                (unsigned long long)(ex->prog ? ex->prog->serial : 0), (unsigned long long)c14->addr,
+                (unsigned long long)c14->size, first[0], first[1], first[2], first[3]);
+    }
     uint64_t th = bindings_hash(ex, info);
     for (int i = 0; i < nents; i++)
         if (ents[i].p == p && ents[i].th == th) {
@@ -684,10 +733,75 @@ void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeIn
     Str b = {0};
     sp(&b, "vs %016llx fs %016llx prog %llu prim %d\n", (unsigned long long)shader_hash(s->vs),
        (unsigned long long)shader_hash(s->fs), (unsigned long long)(ex->prog ? ex->prog->serial : 0), s->prim);
+    for (int i = 0; i < 16; i++) {
+        uint32_t w = ex->pipe.vattr[i];
+        if (!w) continue;
+        sp(&b, "  vattr %d: fmt %#x offset %u stream %u\n", i, w & 0xff, (w >> 8) & 0x7ffff, w >> 27);
+    }
+    for (int i = 0; i < 16; i++)
+        if (ex->pipe.vstream[i].stride)
+            sp(&b, "  vstream %d: stride %u divisor %u\n", i, ex->pipe.vstream[i].stride, ex->pipe.vstream[i].divisor);
+    sp(&b, "  alpha test func %u ref %g\n", (unsigned)ex->pipe.color.alpha_func, (double)ex->pipe.alpha_ref);
+    sp(&b, "  blend en %#x src %d dst %d srcA %d dstA %d eq %d/%d; chmask %#x; ms a2c %d samples %d\n",
+       (unsigned)ex->pipe.color.blend_en, (int)ex->pipe.blend[0].src_rgb, (int)ex->pipe.blend[0].dst_rgb,
+       (int)ex->pipe.blend[0].src_a, (int)ex->pipe.blend[0].dst_a, (int)ex->pipe.blend[0].eq_rgb,
+       (int)ex->pipe.blend[0].eq_a, (unsigned)ex->pipe.chmask.mask, (int)ex->pipe.ms.a2c, (int)ex->pipe.ms.samples);
     describe_bindings(&b, ex, info);
     ents[nents++] = (Ent){p, th, 1, b.s};
 out:
     plat_mutex_unlock(&rec_lock);
+    if (arm) dump_arm("auto");
+}
+
+// After the draw command of every draw of a logged frame: one line per draw, and with AC_DUMP_DRAWS the pass is ended
+// here and its first colour and depth targets are copied, the next draw reopening the pass (loadOp LOAD keeps its
+// contents).
+void vk_dump_after_draw(VkExec *ex, const char *kind, int64_t count, int64_t instances, int64_t first,
+                        int64_t base_vertex, uint64_t ibuf) {
+    plat_mutex_lock(&rec_lock);
+    if (!active() || !passes_f) {
+        plat_mutex_unlock(&rec_lock);
+        return;
+    }
+    int n = pass_draws, split = draws_pass >= 0 && seq == draws_pass && frame_now() == dump_frame;
+    fprintf(passes_f, "  draw %d: %s vs %016llx fs %016llx prog %llu count %lld inst %lld first %lld base %lld ibuf %#llx",
+            n, kind, (unsigned long long)shader_hash(last_vs), (unsigned long long)shader_hash(last_fs),
+            (unsigned long long)(ex->prog ? ex->prog->serial : 0), (long long)count, (long long)instances,
+            (long long)first, (long long)base_vertex, (unsigned long long)ibuf);
+    for (int i = 0; i < 16; i++)
+        if (ex->vbuf[i].address && ex->vbuf[i].size)
+            fprintf(passes_f, " vb%d %#llx+%#llx", i, (unsigned long long)ex->vbuf[i].address,
+                    (unsigned long long)ex->vbuf[i].size);
+    fputc('\n', passes_f);
+    plat_mutex_unlock(&rec_lock);
+    if (!split) return;
+    splitting = 1;
+    vk_exec_pass_end(ex);
+    splitting = 0;
+    // Copy both the first colour target and the depth target when the pass has them: a draw can change colour while
+    // leaving depth untouched (an earlier pass already wrote it), so a depth-only capture cannot show which draw
+    // added an artifact.
+    const VkExecTarget *ts[2];
+    const char *tags[2] = {"t0", "td"};
+    int nt = 0;
+    if (ex->color[0].image) ts[nt++] = &ex->color[0];
+    if (ex->depth.image) ts[nt++] = &ex->depth;
+    for (int k = 0; k < nt; k++) {
+        const VkExecTarget *t = ts[k];
+        if (t->samples > 1 || t->blocks || t->is3d) continue;
+        char fn[16], name[160];
+        snprintf(name, sizeof name, "pass_%04d_d%03d_%s_%ux%u_%d_%s", seq, n, tags[k], t->width, t->height,
+                 (int)t->format, fmt_name(t->format, fn));
+        const char *why = copy_out(ex, t->image, t->format, t->aspect, t->level, t->base_layer, t->width, t->height, 1,
+                                   name);
+        plat_mutex_lock(&rec_lock);
+        if (passes_f) fprintf(passes_f, "  draw %d -> %s.png%s%s\n", n, name, why ? " skipped: " : "", why ? why : "");
+        plat_mutex_unlock(&rec_lock);
+    }
+    // Reopened at once (loadOp LOAD), so the game's own end of the pass still logs it; the next draw's state is as
+    // prepare_draw leaves it: viewport and scissor are set again
+    ex->dirty |= VK_EXEC_DIRTY_VIEWPORT | VK_EXEC_DIRTY_SCISSOR;
+    vk_exec_pass_begin(ex);
 }
 
 static void target_line(VkExec *ex, const VkExecTarget *t, const char *tag, int n) {
@@ -733,6 +847,7 @@ static void pass_decide(int same_targets) {
 }
 
 void vk_dump_pass_end(VkExec *ex) {
+    if (splitting) return;
     plat_mutex_lock(&rec_lock);
     if (!active()) goto out;
     int n = seq++;
@@ -862,11 +977,11 @@ out:
 
 static void make_dirs(char *path) { plat_file_mkdir_p(path); }
 
-void vk_dump_init(void) {
-    const char *e = cfg_get("AC_DUMP");
-    if (!e || !*e || !(dump_frame = strtoull(e, NULL, 10))) return;
-    const char *lf = cfg_get("AC_DUMP_LOG");
-    if (lf && *lf) log_from = strtoull(lf, NULL, 10);
+// AC_DUMP_DIR, AC_DUMP_UBO, AC_DUMP_SKIP_RUNS, AC_DUMP_TEX and AC_DUMP_BUF are parsed even when AC_DUMP is absent: F12
+// (vk_dump_request) can arm a dump at any time, unlike AC_DUMP which names its frame at start.
+static void dump_config(void) {
+    if (dump_conf) return;
+    dump_conf = 1;
     const char *sr = cfg_get("AC_DUMP_SKIP_RUNS");
     skip_runs = sr && *sr && *sr != '0';
     const char *du = cfg_get("AC_DUMP_UBO");
@@ -882,13 +997,19 @@ void vk_dump_init(void) {
     }
     const char *d = cfg_get("AC_DUMP_DIR");
     snprintf(dir, sizeof dir, "%s", d && *d ? d : "dump");
-    make_dirs(dir);
-    char path[600];
-    snprintf(path, sizeof path, "%s/passes.txt", dir);
-    passes_f = fopen(path, "w");
-    snprintf(path, sizeof path, "%s/images.txt", dir);
-    images_f = fopen(path, "w");
-    if (!passes_f || !images_f) rt_fatal("vk_dump: cannot write to %s", dir);
+    const char *au = cfg_get("AC_DUMP_AUTO");
+    if (au && *au) {
+        char *q;
+        auto_vs = strtoull(au, &q, 16);
+        if (*q == ':') auto_fs = strtoull(q + 1, &q, 16);
+        rt_log("vk_dump: auto will arm on vs %016llx fs %016llx", (unsigned long long)auto_vs,
+               (unsigned long long)auto_fs);
+    }
+    const char *dd = cfg_get("AC_DUMP_DRAWS");
+    if (dd && *dd) {
+        draws_pass = atoi(dd);
+        rt_log("vk_dump: pass %d of the dumped frame is copied after every draw", draws_pass);
+    }
     const char *bf = cfg_get("AC_DUMP_BUF");
     if (bf && *bf) {
         char *q;
@@ -899,12 +1020,60 @@ void vk_dump_init(void) {
         if (*q == ':') bd_w = (uint32_t)strtoul(q + 1, &q, 0);
         if (*q == ':') bd_h = (uint32_t)strtoul(q + 1, &q, 0);
         if (!bd_w || !bd_h) bd_stride = 0;
-        snprintf(path, sizeof path, "%s/bufs.txt", dir);
-        if (bd_size && !(bufs_f = fopen(path, "w"))) bd_size = 0;
     }
+}
+
+// Opens the logs for a frame. Only called when no dump is being written (vk_dump_init, vk_dump_request).
+static void dump_open(void) {
+    make_dirs(dir);
+    if (passes_f) fclose(passes_f), passes_f = NULL;
+    if (images_f) fclose(images_f), images_f = NULL;
+    if (bufs_f) fclose(bufs_f), bufs_f = NULL;
+    char path[600];
+    snprintf(path, sizeof path, "%s/passes.txt", dir);
+    passes_f = fopen(path, "w");
+    snprintf(path, sizeof path, "%s/images.txt", dir);
+    images_f = fopen(path, "w");
+    if (!passes_f || !images_f) rt_fatal("vk_dump: cannot write to %s", dir);
+    if (bd_size) {
+        snprintf(path, sizeof path, "%s/bufs.txt", dir);
+        if (!(bufs_f = fopen(path, "w"))) bd_size = 0;
+    }
+    png_bytes = 0;
+}
+
+void vk_dump_init(void) {
+    dump_config();
+    const char *e = cfg_get("AC_DUMP");
+    if (!e || !*e || !(dump_frame = strtoull(e, NULL, 10))) return;
+    const char *lf = cfg_get("AC_DUMP_LOG");
+    if (lf && *lf) log_from = strtoull(lf, NULL, 10);
+    dump_open();
     vk_dump_armed = 1;
     rt_log("vk_dump: frame %llu goes to %s", (unsigned long long)dump_frame, dir);
 }
+
+// F12 or AC_DUMP_AUTO: dump the next full frame. The request may come from the window thread or the replay thread while
+// a frame records; setting dump_frame one frame ahead means the current frame's remaining hooks skip it, and the next
+// frame is copied whole.
+static void dump_arm(const char *why) {
+    plat_mutex_lock(&rec_lock);
+    if (passes_f) {
+        plat_mutex_unlock(&rec_lock);
+        rt_log("vk_dump: %s: a frame is already being dumped; ignored", why);
+        return;
+    }
+    dump_config();
+    dump_frame = frame_now() + 1;
+    log_from = 0;
+    finished = 0, copied = 0, seq = 0, last_targets = 0, pass_skip = NULL;
+    dump_open();
+    vk_dump_armed = 1;
+    plat_mutex_unlock(&rec_lock);
+    rt_log("vk_dump: %s: frame %llu goes to %s", why, (unsigned long long)dump_frame, dir);
+}
+
+void vk_dump_request(void) { dump_arm("F12"); }
 
 void vk_dump_present(uint64_t frame) {
     if (frame != dump_frame) return;
@@ -917,8 +1086,11 @@ void vk_dump_present(uint64_t frame) {
     images_f = NULL;
     if (bufs_f) fclose(bufs_f), bufs_f = NULL;
     plat_mutex_unlock(&img_lock);
+    plat_mutex_lock(&rec_lock);
     fclose(passes_f);
     passes_f = NULL;
+    vk_dump_armed = 0;
+    plat_mutex_unlock(&rec_lock);
     rt_log("vk_dump: frame %llu: %d passes and dispatches, about %llu MB of PNGs in %s", (unsigned long long)frame, seq,
            (unsigned long long)(png_bytes >> 20), dir);
 }

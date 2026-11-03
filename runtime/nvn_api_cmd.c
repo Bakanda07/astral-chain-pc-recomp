@@ -712,6 +712,15 @@ NVN_API(nvnCommandBufferSetPointSize) {
     r->kind = 6;
     memcpy(r->bytes, &s, sizeof s);
 }
+// void nvnCommandBufferSetAlphaRef(NVNcommandBuffer *cmd, float ref): the alpha test's reference, recorded as bind-state
+// kind 7 with the float as payload; the replay passes it with the colour state's alpha function to the fragment
+// shader's translation (vk_pipeline_answers)
+NVN_API(nvnCommandBufferSetAlphaRef) {
+    p_bind_state *r = REC(cmd_of(c), OP_BIND_STATE, p_bind_state);
+    float ref = arg_s(c, 0);
+    r->kind = 7;
+    memcpy(r->bytes, &ref, sizeof ref);
+}
 // void nvnCommandBufferBindVertexAttribState(NVNcommandBuffer *cmd, int n, const NVNvertexAttribState *states)
 NVN_API(nvnCommandBufferBindVertexAttribState) {
     cmd_t *o = cmd_of(c);

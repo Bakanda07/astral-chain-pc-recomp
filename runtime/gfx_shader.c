@@ -51,8 +51,9 @@
 #define KEY_VERSION 4                                      // in every cache key; bump when the key layout or the use of the
                                                            // output changes here (4: translator identity, input ids);
                                                            // translator changes are covered by its identity
-#define IN_VERSION 1                                       // in every input id and .in file: bump when the answers layout
+#define IN_VERSION 2                                       // in every input id and .in file: bump when the answers layout
                                                            // or the program hash changes (drops every stored input)
+                                                           // (2: alpha test function and reference)
 #define USE_MAGIC 0x4d554b54u                              // "TKUM", .use files
 #define USE_VERSION 1
 #define IN_MAGIC 0x49534b54u                               // "TKSI", .in files
@@ -984,6 +985,8 @@ static size_t pack_answers(uint8_t *o, const GfxShaderAnswers *a) {
     for (int i = 0; i < 3; i++) *p++ = (uint8_t)a->local[i], *p++ = (uint8_t)(a->local[i] >> 8);
     put_u32(&p, a->shared_bytes);
     *p++ = a->depth_minus_w;
+    *p++ = a->alpha_func;
+    memcpy(p, &a->alpha_ref, 4), p += 4;
     return (size_t)(p - o);
 }
 
@@ -1015,6 +1018,7 @@ static void mask_answers(const GfxShaderAnswers *a, const UseMask *m, GfxShaderA
         if (m->fouts >> i & 1) o->frag_out_type[i] = a->frag_out_type[i];
     memcpy(o->local, a->local, sizeof o->local);
     o->shared_bytes = a->shared_bytes;
+    o->alpha_func = a->alpha_func, o->alpha_ref = a->alpha_ref;   // set for fragment shaders only (vk_pipeline_answers)
 }
 
 // The cache key of an input id under the current translator.
@@ -1081,6 +1085,15 @@ static size_t build_request(char *o0, const char *hex, const char *stage, const 
         for (int i = 0; i < 8; i++)
             if (a->frag_out_type[i]) o += sprintf(o, "%s\"%d\":\"%s\"", sep, i, attr_name(a->frag_out_type[i])), sep = ",";
         o += sprintf(o, "},\"shared\":%u", a->shared_bytes);
+        if (a->alpha_func) {   // the reference as its bits: the translator compares against this exact float
+            uint32_t bits;
+            memcpy(&bits, &a->alpha_ref, 4);
+            o += sprintf(o, ",\"alpha_test\":%u,\"alpha_ref_bits\":%u", a->alpha_func, bits);
+            static int said;
+            if (!__atomic_exchange_n(&said, 1, __ATOMIC_RELAXED))
+                rt_log("gfx_shader: first fragment shader with an alpha test (func %u, ref %g)", a->alpha_func,
+                       (double)a->alpha_ref);
+        }
     }
     if (!strcmp(stage, "cs")) {
         uint32_t l[3] = {1, 1, 1};
@@ -1674,8 +1687,8 @@ void gfx_shader_local_size(const GfxShader *s, uint32_t local[3]) { memcpy(local
 //                       code[length], c1. One per code hash; written before the answers that name it. Game content:
 //                       it stays in the ignored pipeline cache directory.
 // A file with another header is rewritten; a torn tail (killed process) is cut off at open.
-#define ANS_VERSION 1
-#define ANS_PACKED 147                                     // pack_answers' size
+#define ANS_VERSION 2
+#define ANS_PACKED 152                                     // pack_answers' size
 #define ANS_REC (4 + 32 + 32 + ANS_PACKED + 1)
 #define PRG_VERSION 1
 #define PRG_HEAD (12 + 32 + CONTROL_SIZE)
@@ -1741,7 +1754,9 @@ static void unpack_answers(const uint8_t *p, GfxShaderAnswers *a) {
     memcpy(a->frag_out_type, p, 8), p += 8;
     for (int i = 0; i < 3; i++) a->local[i] = (uint16_t)(p[0] | p[1] << 8), p += 2;
     memcpy(&a->shared_bytes, p, 4), p += 4;
-    a->depth_minus_w = *p;
+    a->depth_minus_w = *p++;
+    a->alpha_func = *p++;
+    memcpy(&a->alpha_ref, p, 4);
 }
 
 // Reads a record file's body (after its header) into *body; 0 when absent, and a file with another header is removed.

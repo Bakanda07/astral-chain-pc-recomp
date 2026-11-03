@@ -367,6 +367,8 @@ size_t vk_texture_texel_span(const tex_t *t, const view_t *v, const NVNcopyRegio
 int vk_texture_small_dirty(void);                   // a small mirrored target holds GPU texels its storage lacks
 void vk_texture_write_back_small(uint64_t fence);   // writes those rendered by work up to fence back to storage
 void vk_texture_debug(const VkTexImage *img, uint32_t *uploads, int *last_change, int *pages_written);   // vk_dump
+void vk_dump_request(void);   // vk_dump: dump the next full frame (F12)
+uint64_t vk_dump_shader_hash(const GfxShader *s);   // the sh_<hash> the dump names this shader with
 int vk_texture_slot_swz(int id, uint8_t swz[4]);    // vk_dump: swizzle of the descriptor in slot id
 int vk_texture_read_image(const tex_t *t, const view_t *v, const NVNcopyRegion *r, uint8_t *dst, uint64_t row,
                           uint64_t img);            // always from the image (GPU copy, waited for); 0 on failure
@@ -443,6 +445,8 @@ typedef struct VkPipeState {
                                            // (OP_PRIM_RESTART, set by op_draw_idx); dynamic state only
     uint8_t feedback;                      // the fragment shader samples an attachment of the pass in the feedback
                                            // layout: 1 colour, 2 depth/stencil (VK_PIPELINE_CREATE_*_FEEDBACK_LOOP_BIT_EXT)
+    float alpha_ref;                       // OP_BIND_STATE kind 7 (SetAlphaRef): reference of color.alpha_func's test,
+                                           // which the fragment shader variant does (vk_pipeline_answers); not in the key
     blend_st blend[8];                    // OP_BIND_STATE kind 0, indexed by blend_st.target
     color_st color;                        // kinds 1-5
     chmask_st chmask;

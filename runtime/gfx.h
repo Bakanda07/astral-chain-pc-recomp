@@ -35,6 +35,8 @@ typedef struct {                                           // the translator's a
     uint8_t attr_type[32], frag_out_type[8];               // GFX_TYPE_*
     uint16_t local[3]; uint32_t shared_bytes;
     uint8_t depth_minus_w;
+    uint8_t alpha_func;                                    // FS: NVN_ALPHA_FUNC_* of the alpha test, 0 = none (ALWAYS)
+    float alpha_ref;                                       // FS: its reference; 0 without a comparing function
 } GfxShaderAnswers;
 typedef struct GfxShader GfxShader;                        // SPIR-V words + parsed reflection; owned by the cache
 const GfxShader *gfx_shader_get(int stage, const uint8_t *control, const uint8_t *code, uint64_t code_size,
