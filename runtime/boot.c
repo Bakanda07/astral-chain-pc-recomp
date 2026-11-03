@@ -248,6 +248,12 @@ void rt_frame_presented(const tex_t *t, uint64_t n) {
     const RtConfig *cfg = rt_config();
     series_shot(t, n);
     int64_t w = cfg->seconds ? frame_step_world_us() : -1;
+    static int present_shot;   // AC_PRESENT_SHOT=<file>: the window's picture half a second before the run ends
+    if (!present_shot && w >= 0 && (double)w >= cfg->seconds * 1e6 - 5e5) {
+        present_shot = 1;
+        const char *ps = cfg_get("AC_PRESENT_SHOT");
+        if (ps && *ps) vk_present_shot(ps);
+    }
     if (w < 0 || (double)w < cfg->seconds * 1e6) return;
     if (cfg->shot) save_shot(t, cfg->shot);
     GfxStats g = gfx_stats();

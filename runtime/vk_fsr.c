@@ -1,7 +1,8 @@
-// AMD FidelityFX Super Resolution 1 on the present path (gfx_present.c present_image): when the window is larger than
-// the game's output, EASU scales the game's crop rectangle to the swapchain size and RCAS sharpens it, in place of the
-// bilinear vkCmdBlitImage. AC_UPSCALER=fsr|bilinear picks it, AC_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS;
-// both apply at the next frame.
+// AMD FidelityFX Super Resolution 1 on the present path (gfx_present.c present_image): EASU scales the game's crop
+// rectangle to its place on the swapchain and RCAS sharpens it, in place of the bilinear vkCmdBlitImage. As Ryujinx's
+// FSR scaling filter, it runs at every size ratio: an image the window's size (AC_SSAA = 1.333 on a 1440p screen) gets
+// RCAS's sharpening, a larger one (AC_SSAA = 2) is reduced by EASU. AC_UPSCALER=fsr|bilinear picks it, AC_SHARPNESS
+// (0..100, 0 = no RCAS pass) sets RCAS; both apply at the next frame.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
 // writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
@@ -36,7 +37,8 @@ static struct {
     VkImageView view[2];
     uint32_t w, h;                 // their size
     VkImageView src_view[SLOTS];   // the source view each slot's last frame read
-    int logged;
+    int lcw, lch;                  // the last source size logged
+    uint32_t ldw, ldh;             // the last destination size logged
 } F;
 
 static VkPipeline make_pipeline(VkCtx *c, const uint32_t *code, size_t size) {
@@ -160,7 +162,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
                   VkImage dst, const int out[4]) {
     int cw = crop[2], ch = crop[3];
     uint32_t dw = (uint32_t)out[2], dh = (uint32_t)out[3];
-    if (strcmp(cfg_value("AC_UPSCALER"), "fsr") || (dw <= (uint32_t)cw && dh <= (uint32_t)ch) || !fmt) return 0;
+    if (strcmp(cfg_value("AC_UPSCALER"), "fsr") || !fmt) return 0;
     VkCtx *c = vk_ctx();
     if (!F.tried) init(c);
     if (!F.ok || !ensure_images(c, dw, dh)) return 0;
@@ -178,9 +180,10 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     int sharp = cfg_int("AC_SHARPNESS");
     if (sharp < 0) sharp = 0;
     if (sharp > 100) sharp = 100;
-    if (!F.logged) {
-        F.logged = 1;
-        rt_log("vk: FSR upscales %dx%d to %ux%u (sharpness %d)", cw, ch, dw, dh, sharp);
+    if (F.lcw != cw || F.lch != ch || F.ldw != dw || F.ldh != dh) {
+        F.lcw = cw, F.lch = ch, F.ldw = dw, F.ldh = dh;
+        rt_log("vk: FSR scales %dx%d to %ux%u (sharpness %d), crop %d,%d %dx%d", cw, ch, dw, dh, sharp, crop[0], crop[1],
+               crop[2], crop[3]);
     }
     const VkPipelineStageFlags2 CS = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, XF = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     // the game's writes to the source become visible to the compute read; the earlier frame's reads of the

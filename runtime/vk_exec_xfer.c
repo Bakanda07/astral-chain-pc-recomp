@@ -33,6 +33,7 @@
 // (https://github.com/ly05010419/MacNativeGames @ b75be8cfa704df3701e86130c8ced268e79d6b11, MIT, Copyright (c) 2026
 // jhaizhou) and LAS Recomp runtime/nvn/vulkan/exec.c:3045-3235 (https://github.com/peiikai/LASRecomp @
 // da35b83a9611d046a9a681aae668d7085954d37f, MIT, Copyright (c) 2026 Peiikai).
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -356,11 +357,11 @@ static int sub_resolve(const tex_t *t, const view_t *v, int has_v, const NVNcopy
     s->level = has_v && v->set_levels ? v->base_level : 0;
     s->layer0 = has_v && v->set_layers ? v->min_layer : 0;
     uint32_t lw = max1(img->width >> s->level), lh = max1(img->height >> s->level);
-    int k = img->scale > 1 ? img->scale : 1;   // a larger shadow map: the game's region in its texels
-    s->x = r->xoffset * k, s->y = r->yoffset * k, s->z = r->zoffset;
+    double k = img->scale > 1.0f ? img->scale : 1.0;   // a larger target: the game's region in its texels
+    s->x = (int32_t)llround(r->xoffset * k), s->y = (int32_t)llround(r->yoffset * k), s->z = r->zoffset;
     s->nz = r->depth > 0 ? (uint32_t)r->depth : 1;
-    s->w = r->width > 0 ? (uint32_t)r->width * k : defaults_to_level ? (s->x < (int32_t)lw ? lw - (uint32_t)s->x : 0) : 0;
-    s->h = r->height > 0 ? (uint32_t)r->height * k : defaults_to_level ? (s->y < (int32_t)lh ? lh - (uint32_t)s->y : 0) : 0;
+    s->w = r->width > 0 ? (uint32_t)llround(r->width * k) : defaults_to_level ? (s->x < (int32_t)lw ? lw - (uint32_t)s->x : 0) : 0;
+    s->h = r->height > 0 ? (uint32_t)llround(r->height * k) : defaults_to_level ? (s->y < (int32_t)lh ? lh - (uint32_t)s->y : 0) : 0;
     int is3d = img->type == VK_IMAGE_TYPE_3D;
     uint32_t layers = is3d ? 1 : (uint32_t)s->z + s->nz, first = is3d ? 0 : s->layer0;
     if (s->level >= img->levels || s->x < 0 || s->y < 0 || s->z < 0 || !s->w || !s->h ||
@@ -416,8 +417,8 @@ static int buffer_side(const VkExec *ex, const Sub *s, uint64_t addr, uint64_t *
 static void copy_buffer_image(VkExec *ex, const p_copy_b2t *p, int to_image) {
     Sub s;
     if (!sub_resolve(p->tex, &p->view, p->has_view, &p->r, 1, &s)) return;
-    if (s.img->scale > 1) {   // the buffer holds the game's texel count, the image more
-        warn_once(W_REGION, "buffer copy of a shadow map enlarged by AC_SHADOW_SCALE: skipped");
+    if (s.img->scale > 1.0f) {   // the buffer holds the game's texel count, the image more
+        warn_once(W_REGION, "buffer copy of a render target enlarged by AC_SSAA (or a shadow map by AC_SHADOW_SCALE): skipped");
         return;
     }
     uint64_t size;
@@ -447,6 +448,14 @@ static void copy_t2t(VkExec *ex, const p_copy_t2t *p) {
     }
     if (s.aspect != d.aspect || (s.aspect != VK_IMAGE_ASPECT_COLOR_BIT && !same_format)) {
         warn_once(W_COPY, "texture copy between formats %#x and %#x: skipped", p->src->d.format, p->dst->d.format);
+        return;
+    }
+    // vkCmdBlitImage and vkCmdResolveImage take colour images only; a depth/stencil copy whose images differ in size or
+    // samples has no valid command here. With AC_SSAA one side can be the enlarged target and the other the game's
+    // size; skipping keeps the invalid blit out of the command buffer.
+    if (s.aspect != VK_IMAGE_ASPECT_COLOR_BIT && (!same_size || s.img->samples != d.img->samples)) {
+        warn_once(W_COPY, "depth/stencil copy %ux%u -> %ux%u (%u -> %u samples): skipped", s.w, s.h, d.w, d.h,
+                  s.img->samples, d.img->samples);
         return;
     }
     VkImageSubresourceLayers sl = sub_layers(&s), dl = sub_layers(&d);

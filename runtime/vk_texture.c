@@ -323,6 +323,47 @@ static int shadow_scale_of(const nvn_texdesc *d, const TexVkFormat *f, uint32_t 
     return d->width * (uint32_t)scale <= most ? scale : 1;
 }
 
+// AC_SSAA (1, 1.333, 1.5 or 2): emulator-style resolution scaling. A texture the game uses as a render target or as the
+// window is made this many times larger on each side; the replay multiplies the game's viewports, scissors, clears and
+// copies by the same factor (vk_exec.c pass_scale, vk_exec_xfer.c), and shaders sample it with normalised coordinates, so
+// the game sees its own logical resolution while the picture is rendered at the larger one. The present then hands that
+// larger image to the window (vk_backend.c). Textures sampled only, uploaded from guest memory, CPU-written (mirrored),
+// linear, multisampled, 1D or 3D keep their size, as their texels must match the guest layout.
+static float render_scale(void) {
+    static float scale = -1;
+    if (scale < 0) {
+        const char *e = cfg_value("AC_SSAA");
+        double v = e && *e ? atof(e) : 1.0;
+        if (!(v >= 1.0 && v <= 2.0)) {
+            rt_log("resolution: AC_SSAA=%s is not 1, 1.333, 1.5 or 2; render targets keep the game's size", e);
+            v = 1.0;
+        }
+        // 1.333 means 4/3: 1920x1080 becomes 2560x1440 exactly. 1.333 itself gives 2559x1440, and an odd-width colour
+        // and depth pair lost the device on Intel's Arc 140T when the HQ's lighting pass started.
+        if (fabs(v - 4.0 / 3.0) < 0.01) v = 4.0 / 3.0;
+        scale = (float)v;
+        if (scale > 1.0f) rt_log("vk: render targets %.3gx larger than the game's (AC_SSAA)", scale);
+    }
+    return scale;
+}
+
+float vk_render_scale(void) { return render_scale(); }
+
+static float render_scale_of(const tex_t *t, const TexVkFormat *f, uint32_t samples, int mirrored) {
+    const nvn_texdesc *d = &t->d;
+    float scale = render_scale();
+    if (scale <= 1.0f || mirrored || samples > 1) return 1.0f;
+    if (!(d->flags & (NVN_TEXTURE_FLAGS_IMAGE | NVN_TEXTURE_FLAGS_DISPLAY))) return 1.0f;
+    if (d->flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) return 1.0f;
+    if (d->target != NVN_TEXTURE_TARGET_2D && d->target != NVN_TEXTURE_TARGET_2D_ARRAY) return 1.0f;
+    if (f->depth && !(d->flags & NVN_TEXTURE_FLAGS_IMAGE)) return 1.0f;
+    const VkPhysicalDeviceLimits *l = &vk_ctx()->props.limits;
+    if ((float)d->width * scale > (float)l->maxImageDimension2D ||
+        (float)d->height * scale > (float)l->maxImageDimension2D)
+        return 1.0f;
+    return scale;
+}
+
 // defer_init: the caller records the image's first transition (init_image or alias_copy).
 static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     static volatile int32_t n_unmapped, n_unsupported, n_failed, n_unbound, n_thick;
@@ -341,6 +382,7 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     nvn_texlayout L;
     nvn_tex_layout(d, &L);
     uint32_t w = umax(d->width, 1), h = umax(d->height, 1), depth = 1, layers = 1;
+    uint32_t samples = d->samples > 1 ? (uint32_t)d->samples : 1;
     VkImageType type = VK_IMAGE_TYPE_2D;
     switch (d->target) {
     case NVN_TEXTURE_TARGET_1D: type = VK_IMAGE_TYPE_1D; h = 1; break;
@@ -350,12 +392,14 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     case NVN_TEXTURE_TARGET_CUBEMAP: case NVN_TEXTURE_TARGET_CUBEMAP_ARRAY: layers = L.layers; break;
     default: break;
     }
-    int scale = shadow_scale_of(d, &f, d->samples > 1 ? (uint32_t)d->samples : 1, tex_mirrored(t));
-    w *= (uint32_t)scale, h *= (uint32_t)scale;
+    int shadow = shadow_scale_of(d, &f, samples, tex_mirrored(t));
+    float scale = (float)shadow;
+    float rs = render_scale_of(t, &f, samples, tex_mirrored(t));
+    if (rs > 1.0f) scale = scale > 1.0f ? scale * rs : rs;
+    w = (uint32_t)lroundf((float)w * scale), h = (uint32_t)lroundf((float)h * scale);
     uint32_t levels = umax(d->levels, 1), most = 1;
     for (uint32_t s = umax(umax(w, h), depth); s > 1; s >>= 1) most++;
     if (levels > most) levels = most;
-    uint32_t samples = d->samples > 1 ? (uint32_t)d->samples : 1;
     if (samples > 1) levels = 1;
     VkFormatFeatureFlags ff = features_of(f.vk);
     VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -426,7 +470,7 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     e->last_use = submit_epoch;
     e->pub.addr = k->addr;
     VkImage img = VK_NULL_HANDLE;
-    if (scale == 1 && nvn_gpu_only(k->addr)) {   // storage in a physical or virtual pool: alias the pool memory (section 3.2)
+    if (scale <= 1.0f && nvn_gpu_only(k->addr)) {   // storage in a physical or virtual pool: alias the pool memory (section 3.2)
         if (vkCreateImage(c->device, &ci, NULL, &img) == VK_SUCCESS && !bind_pool_memory(c, e, img, L.size)) {
             vkDestroyImage(c->device, img, NULL);
             img = VK_NULL_HANDLE;
@@ -474,7 +518,7 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     p->bound = e->bound_to != NULL;
     p->block_views = (uint8_t)block_views;
     p->fb_usage = (uint8_t)fb_usage;
-    p->scale = (uint8_t)scale;
+    p->scale = scale;
 
     if (!defer_init) {
         init_image(e, vk_upload_begin());
@@ -1340,8 +1384,8 @@ static int read_aspect(const Tex *e, VkImageAspectFlags *a) {
     }
 }
 
-// Image <-> caller rows through a staging buffer; the GPU copy is waited for.
-static int image_texels(Tex *e, const Region *g, const NVNcopyRegion *r, uint8_t *mem, int write) {
+// Image <-> caller rows through a staging buffer; the GPU copy is waited for. The region is in the image's texels.
+static int image_texels_at(Tex *e, const Region *g, const NVNcopyRegion *r, uint8_t *mem, int write) {
     static volatile int32_t n_astc, n_ds;
     VkCtx *c = vk_ctx();
     VkImageAspectFlags aspect;
@@ -1434,6 +1478,62 @@ static int image_texels(Tex *e, const Region *g, const NVNcopyRegion *r, uint8_t
     free(rg);
     vmaDestroyBuffer(c->vma, sb, sa);
     return 1;
+}
+
+// Image <-> caller rows, the region in the game's texels. A texture AC_SSAA enlarged (render_scale_of) holds about k
+// texels for each of the game's on a side: the game's region maps to the enlarged one, a read takes the enlarged texel
+// nearest each of the game's centres and a write repeats each of the game's texels over those it covers. Otherwise
+// ReadTexels of a render target, and --shot, got the enlarged picture's top-left corner.
+static int image_texels(Tex *e, const Region *g, const NVNcopyRegion *r, uint8_t *mem, int write) {
+    float k = e->pub.scale;
+    if (!(k > 1.0f) || g->bw != 1 || g->bh != 1 || e->f.expand_rgb || e->f.astc_bw) return image_texels_at(e, g, r, mem, write);
+    uint32_t lw = umax(e->pub.width >> g->level, 1), lh = umax(e->pub.height >> g->level, 1);
+    int32_t x0 = (int32_t)lroundf((float)r->xoffset * k), y0 = (int32_t)lroundf((float)r->yoffset * k);
+    int32_t x1 = (int32_t)lroundf((float)(r->xoffset + r->width) * k), y1 = (int32_t)lroundf((float)(r->yoffset + r->height) * k);
+    if (x1 > (int32_t)lw) x1 = (int32_t)lw;
+    if (y1 > (int32_t)lh) y1 = (int32_t)lh;
+    if (x1 <= x0 || y1 <= y0) return 0;
+    NVNcopyRegion r2 = *r;
+    r2.xoffset = x0, r2.yoffset = y0, r2.width = x1 - x0, r2.height = y1 - y0;
+    Region g2 = *g;
+    size_t bpb = (size_t)g->bpb, w2 = (size_t)r2.width, h2 = (size_t)r2.height;
+    g2.wb = w2 * bpb, g2.hb = h2, g2.row = g2.wb, g2.img = g2.wb * h2;
+    uint8_t *tmp = malloc(g2.img * (size_t)g->nz);
+    if (!tmp) rt_fatal("vk: out of memory for the texels of an enlarged texture");
+    uint32_t *xs = malloc(sizeof *xs * ((size_t)r->width > w2 ? (size_t)r->width : w2));
+    if (!xs) rt_fatal("vk: out of memory for the texels of an enlarged texture");
+    int ok = 1;
+    if (write) {   // each enlarged texel takes the game's texel its centre falls in
+        for (size_t x = 0; x < w2; x++) {
+            int32_t gx = (int32_t)(((float)(x0 + (int32_t)x) + 0.5f) / k) - r->xoffset;
+            xs[x] = (uint32_t)(gx < 0 ? 0 : gx >= r->width ? r->width - 1 : gx);
+        }
+        for (int z = 0; z < g->nz; z++)
+            for (size_t y = 0; y < h2; y++) {
+                int32_t gy = (int32_t)(((float)(y0 + (int32_t)y) + 0.5f) / k) - r->yoffset;
+                gy = gy < 0 ? 0 : gy >= r->height ? r->height - 1 : gy;
+                const uint8_t *src = mem + (size_t)z * g->img + (size_t)gy * g->row;
+                uint8_t *dst = tmp + (size_t)z * g2.img + y * g2.row;
+                for (size_t x = 0; x < w2; x++) memcpy(dst + x * bpb, src + xs[x] * bpb, bpb);
+            }
+        ok = image_texels_at(e, &g2, &r2, tmp, 1);
+    } else if ((ok = image_texels_at(e, &g2, &r2, tmp, 0))) {   // each of the game's texels takes the enlarged one at its centre
+        for (int32_t x = 0; x < r->width; x++) {
+            int32_t ex = (int32_t)(((float)(r->xoffset + x) + 0.5f) * k) - x0;
+            xs[x] = (uint32_t)(ex < 0 ? 0 : ex >= (int32_t)w2 ? (int32_t)w2 - 1 : ex);
+        }
+        for (int z = 0; z < g->nz; z++)
+            for (int32_t y = 0; y < r->height; y++) {
+                int32_t ey = (int32_t)(((float)(r->yoffset + y) + 0.5f) * k) - y0;
+                ey = ey < 0 ? 0 : ey >= (int32_t)h2 ? (int32_t)h2 - 1 : ey;
+                const uint8_t *src = tmp + (size_t)z * g2.img + (size_t)ey * g2.row;
+                uint8_t *dst = mem + (size_t)z * g->img + (size_t)y * g->row;
+                for (int32_t x = 0; x < r->width; x++) memcpy(dst + (size_t)x * bpb, src + xs[x] * bpb, bpb);
+            }
+    }
+    free(xs);
+    free(tmp);
+    return ok;
 }
 
 static void zero_rows(const Region *g, uint8_t *dst) {

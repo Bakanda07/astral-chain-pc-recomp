@@ -53,17 +53,17 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_PERF_LINE_FPS] = "%.0f fps",
     [UI_MENU_GRAPHICS] = "Picture",
     [UI_MENU_OUTPUT_RES] = "Game resolution",
-    [UI_MENU_OUTPUT_RES_DESC] = "The size the game draws its picture and interface in. Above 1920 x 1080 the game needs "
-                                "more video memory and GPU time. A wider size (21:9) widens the camera's view and moves "
-                                "the HUD to the screen's corners; a taller one (16:10, Steam Deck) moves it to the top "
-                                "and bottom edges.",
+    [UI_MENU_OUTPUT_RES_DESC] = "The size the game renders its frame in: 1062p (the community resolution mod) or 1080p "
+                                "(the engine's maximum). The picture is then drawn to the window; AC_SSAA can render it "
+                                "larger than the game's size.",
     [UI_MENU_RENDER_SCALE] = "3D render scale",
-    [UI_MENU_RENDER_SCALE_DESC] = "Size of the 3D scene relative to the game resolution; the game's FSR scales it to "
-                                  "that size. Above 100 % smooths jagged edges (supersampling) at a high GPU cost.",
+    [UI_MENU_RENDER_SCALE_DESC] = "Render targets made larger than the game resolution (emulator-style resolution "
+                                  "scale). 1.33x turns 1080p into 2560 x 1440; the game keeps its logical size and the "
+                                  "window shows the larger picture.",
     [UI_MENU_RENDER_SCALE_GAME] = "Game (83 %)",
     [UI_MENU_UPSCALER] = "Scaling to the window",
-    [UI_MENU_UPSCALER_DESC] = "How the picture is scaled when the window is larger than the game resolution. FSR keeps "
-                              "edges and detail sharper than bilinear.",
+    [UI_MENU_UPSCALER_DESC] = "How the picture is scaled to the window. FSR keeps edges and detail sharper than "
+                              "bilinear, and sharpens the picture even when it already fits the window.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
@@ -405,7 +405,6 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
     [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, sharpness %d%%", [UI_MENU_OV_SCALE_NONE] = "none (1:1)",
     [UI_MENU_OV_SCALE_BILINEAR] = "bilinear",
-    [UI_MENU_OV_SCALE_DOWN] = "bilinear (FSR only enlarges)",
     [UI_MENU_TAB_CHEATS] = "Cheats",
     [UI_MENU_CHEATS_NONE] = "No cheats for this game version. A mod's cheats are an Atmosphere cheat file in its "
                             "cheats folder, named after the game's build: mods\\<mod>\\cheats\\%s. Restart the game to "
@@ -468,17 +467,15 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_PERF_LINE_FPS] = "%.0f к/с",
     [UI_MENU_GRAPHICS] = "Изображение",
     [UI_MENU_OUTPUT_RES] = "Разрешение игры",
-    [UI_MENU_OUTPUT_RES_DESC] = "Размер, в котором игра рисует картинку и интерфейс. Выше 1920 × 1080 игре нужно больше "
-                                "видеопамяти и времени GPU. Более широкий размер (21:9) расширяет обзор камеры и "
-                                "переносит интерфейс в углы экрана, более высокий (16:10, Steam Deck) переносит его к "
-                                "верхнему и нижнему краям.",
+    [UI_MENU_OUTPUT_RES_DESC] = "Размер, в котором игра рисует кадр: 1062p (мод сообщества) или 1080p (максимум "
+                                "движка). Затем картинка выводится в окно; AC_SSAA может отрисовать её крупнее.",
     [UI_MENU_RENDER_SCALE] = "Масштаб 3D-отрисовки",
-    [UI_MENU_RENDER_SCALE_DESC] = "Размер 3D-сцены относительно разрешения игры; FSR игры доводит её до этого размера. "
-                                  "Выше 100 % сглаживает лесенки на краях (суперсэмплинг) ценой большой нагрузки на GPU.",
+    [UI_MENU_RENDER_SCALE_DESC] = "Цели рендеринга крупнее разрешения игры (масштабирование как в эмуляторах). 1.33x "
+                                  "превращает 1080p в 2560 × 1440; игра сохраняет свой логический размер.",
     [UI_MENU_RENDER_SCALE_GAME] = "Как в игре (83 %)",
     [UI_MENU_UPSCALER] = "Масштабирование под окно",
-    [UI_MENU_UPSCALER_DESC] = "Как картинка растягивается, когда окно больше разрешения игры. FSR сохраняет края и "
-                              "детали чётче билинейного.",
+    [UI_MENU_UPSCALER_DESC] = "Как картинка подгоняется под окно. FSR сохраняет края и детали чётче билинейного и "
+                              "повышает резкость, даже когда картинка уже совпадает с окном.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
@@ -825,7 +822,6 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
     [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, резкость %d%%", [UI_MENU_OV_SCALE_NONE] = "нет (1:1)",
     [UI_MENU_OV_SCALE_BILINEAR] = "билинейное",
-    [UI_MENU_OV_SCALE_DOWN] = "билинейное (FSR только увеличивает)",
     [UI_MENU_TAB_CHEATS] = "Читы",
     [UI_MENU_CHEATS_NONE] = "Для этой версии игры читов нет. Читы мода — это файл читов Atmosphere в его папке cheats "
                             "с именем по сборке игры: mods\\<мод>\\cheats\\%s. Перезапустите игру, чтобы они "
@@ -909,18 +905,15 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_PERF_LINE_FPS] = "%.0f fps",
     [UI_MENU_GRAPHICS] = "Imagem",
     [UI_MENU_OUTPUT_RES] = "Resolução do jogo",
-    [UI_MENU_OUTPUT_RES_DESC] = "O tamanho em que o jogo desenha a imagem e a interface. Acima de 1920 x 1080 o jogo "
-                                "precisa de mais memória de vídeo e tempo de GPU. Um tamanho mais largo (21:9) amplia a "
-                                "visão da câmera e leva o HUD para os cantos da tela; um mais alto (16:10, Steam Deck) "
-                                "leva-o para as bordas de cima e de baixo.",
+    [UI_MENU_OUTPUT_RES_DESC] = "O tamanho em que o jogo desenha o quadro: 1062p (mod da comunidade) ou 1080p (máximo "
+                                "do motor). A imagem é então desenhada na janela; AC_SSAA pode renderizá-la maior.",
     [UI_MENU_RENDER_SCALE] = "Escala da renderização 3D",
-    [UI_MENU_RENDER_SCALE_DESC] = "Tamanho da cena 3D em relação à resolução do jogo; o FSR do jogo a amplia até esse "
-                                  "tamanho. Acima de 100 % suaviza bordas serrilhadas (supersampling) com alto custo de "
-                                  "GPU.",
+    [UI_MENU_RENDER_SCALE_DESC] = "Alvos de renderização maiores que a resolução do jogo (escala de resolução como nos "
+                                  "emuladores). 1.33x transforma 1080p em 2560 × 1440; o jogo mantém o tamanho lógico.",
     [UI_MENU_RENDER_SCALE_GAME] = "Jogo (83 %)",
     [UI_MENU_UPSCALER] = "Escala para a janela",
-    [UI_MENU_UPSCALER_DESC] = "Como a imagem é ampliada quando a janela é maior que a resolução do jogo. O FSR mantém "
-                              "bordas e detalhes mais nítidos que o bilinear.",
+    [UI_MENU_UPSCALER_DESC] = "Como a imagem é ajustada à janela. O FSR mantém bordas e detalhes mais nítidos que o "
+                              "bilinear e aumenta a nitidez mesmo quando a imagem já tem o tamanho da janela.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Formato da imagem",
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
@@ -1241,7 +1234,6 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_WALK_SCALE] = "Intensidade do andar",
     [UI_MENU_WALK_SCALE_DESC] = "A inclinação dos analógicos do teclado enquanto a tecla de andar está segura. Metade "
                                 "é andar, a inclinação total é correr.",
-    [UI_MENU_OV_SCALE_DOWN] = "bilinear (o FSR só amplia)",
     [UI_MENU_SHADOW_SCALE] = "Resolução das sombras",
     [UI_MENU_SHADOW_SCALE_DESC] = "Desenha os mapas de sombra do sol essa quantidade de vezes maiores em cada lado "
                                   "que os 960x960 do jogo: bordas de sombra e sombras de folhas mais nítidas. Vale no "
@@ -1372,18 +1364,15 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
 
     [UI_MENU_GRAPHICS] = "画面",
     [UI_MENU_OUTPUT_RES] = "游戏分辨率",
-    [UI_MENU_OUTPUT_RES_DESC] = "游戏绘制画面和界面的尺寸。"
-                                "高于 1920 x 1080 会占用更多显存和 GPU 时间。"
-                                "更宽的尺寸（21:9）会扩大视野，并把界面移到屏幕四角；"
-                                "更高的尺寸（16:10、Steam Deck）则移到上下边缘。",
+    [UI_MENU_OUTPUT_RES_DESC] = "游戏绘制画面的尺寸：1062p（社区分辨率模组）或 1080p（引擎上限）。"
+                                "随后画面会输出到窗口；AC_SSAA 可将其渲染得更大。",
     [UI_MENU_RENDER_SCALE] = "3D 渲染比例",
-    [UI_MENU_RENDER_SCALE_DESC] = "3D 场景相对于游戏分辨率的尺寸；"
-                                  "游戏的 FSR 会将其缩放到该尺寸。"
-                                  "高于 100% 会平滑锯齿边缘（超采样），但 GPU 开销很高。",
+    [UI_MENU_RENDER_SCALE_DESC] = "渲染目标比游戏分辨率更大（模拟器式分辨率缩放）。"
+                                  "1.33 倍可将 1080p 变为 2560 × 1440；游戏保持其逻辑尺寸。",
     [UI_MENU_RENDER_SCALE_GAME] = "游戏（83%）",
     [UI_MENU_UPSCALER] = "放大到窗口",
-    [UI_MENU_UPSCALER_DESC] = "窗口大于游戏分辨率时画面的放大方式。"
-                              "FSR 比双线性更能保留边缘和细节。",
+    [UI_MENU_UPSCALER_DESC] = "画面缩放到窗口的方式。"
+                              "FSR 比双线性更能保留边缘和细节，即使画面已与窗口同样大小也会锐化。",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1",
     [UI_MENU_UPSCALER_BILINEAR] = "双线性",
     [UI_MENU_ASPECT] = "画面宽高比",
@@ -1802,7 +1791,6 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_WALK_KEY_TAKEN] = "同时为 %s",
     [UI_MENU_WALK_SCALE] = "步行幅度",
     [UI_MENU_WALK_SCALE_DESC] = "按住步行键时键盘摇杆的推动幅度。一半为走路，推满为奔跑。",
-    [UI_MENU_OV_SCALE_DOWN] = "双线性（FSR 只能放大）",
     [UI_MENU_SHADOW_SCALE] = "阴影分辨率",
     [UI_MENU_SHADOW_SCALE_DESC] = "将太阳阴影贴图的每条边绘制为游戏 960x960 的若干倍：阴影边缘和树叶阴影更清晰。下次启动时生效。",
     [UI_MENU_SHADOW_RANGE] = "阴影级联范围",

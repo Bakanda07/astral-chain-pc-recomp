@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "cfg.h"
 #include "host.h"
 #include "vk.h"
@@ -423,6 +427,17 @@ static const char *fault_address_type(VkDeviceFaultAddressTypeEXT t) {
     }
 }
 
+// A lost device makes the driver's later calls block; ExitProcess runs DLL detach handlers that can wait on it forever,
+// which leaves a process no task manager can kill until the machine reboots. TerminateProcess skips all of that: the
+// fault is already written to the log, and the next run gets a fresh device.
+static _Noreturn void device_lost_exit(void) {
+    fflush(NULL);
+#ifdef _WIN32
+    TerminateProcess(GetCurrentProcess(), 70);
+#endif
+    _Exit(70);
+}
+
 // The query runs once per process. Threads that hit the loss at the same time wait on the lock until it is logged, so
 // none of them reaches its rt_fatal and ends the process before the report is written.
 void vk_device_fault_report(VkResult r) {
@@ -441,7 +456,7 @@ void vk_device_fault_report(VkResult r) {
         rt_log("vk: device lost; no fault report (VK_EXT_device_fault %s)", c && c->has_device_fault ? "has no entry point"
                                                                                                     : "not enabled");
         plat_mutex_unlock(&lock);
-        return;
+        device_lost_exit();
     }
     VkDeviceFaultCountsEXT n = {.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT};
     VkResult q = get(c->device, &n, NULL);
@@ -467,6 +482,7 @@ void vk_device_fault_report(VkResult r) {
     free(ai);
     free(vi);
     plat_mutex_unlock(&lock);
+    device_lost_exit();
 }
 
 int vk_selftest(void) {

@@ -354,6 +354,11 @@ static int create_swapchain(void) {
     g_sc_ext = ext;
     g_sc_n = MAX_IMAGES;
     vkGetSwapchainImagesKHR(c->device, g_sc, &g_sc_n, g_sc_img);
+    static VkExtent2D logged_ext;
+    if (logged_ext.width != ext.width || logged_ext.height != ext.height) {
+        logged_ext = ext;
+        rt_log("gfx: swapchain %ux%u (window %dx%d, format %d)", ext.width, ext.height, cw, ch, (int)sf.format);
+    }
     VkSemaphoreCreateInfo semi = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     for (uint32_t i = 0; i < g_sc_n; i++) {
         vkCreateSemaphore(c->device, &semi, NULL, &g_render_done[i]);
@@ -506,6 +511,16 @@ int vk_thumbs_read(uint64_t frame, uint8_t *rgba) {
     return ok != 0;
 }
 
+// AC_PRESENT_SHOT (boot.c rt_frame_presented): the swapchain image of the next present, as the window shows it (after
+// AC_SSAA, FSR and the colour adjustment), at the swapchain's size. --shot saves the game's texture instead.
+static char g_present_shot[PLAT_PATH_MAX];
+
+void vk_present_shot(const char *path) {
+    plat_rmutex_lock(&g_pl);
+    snprintf(g_present_shot, sizeof g_present_shot, "%s", path);
+    plat_rmutex_unlock(&g_pl);
+}
+
 void vk_present_capture(int on) {
     plat_rmutex_lock(&g_pl);
     g_capture = on;
@@ -536,7 +551,7 @@ static void save_capture(const char *path) {
     }
     rt_write_png(path, px, (uint32_t)g_cap_w, (uint32_t)g_cap_h);
     free(px);
-    rt_log("gfx: menu test shot %s (%dx%d)", path, g_cap_w, g_cap_h);
+    rt_log("gfx: swapchain shot %s (%dx%d)", path, g_cap_w, g_cap_h);
 }
 
 // The rectangle {x, y, w, h} of a dw x dh swapchain image the cw x ch picture goes into: the whole image with
@@ -600,6 +615,7 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
                      g_sc_ext.height, cw, ch, g_scaler};
     int overlay = g_sc_view[idx] &&
                   menu_overlay_frame(__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED), &mt, &menu_shot);
+    if (!menu_shot && g_present_shot[0]) menu_shot = g_present_shot;   // AC_PRESENT_SHOT (vk_present_shot)
     int cap = (g_capture || menu_shot) && ensure_capture_buffer();
     int thumb = g_th_n && ensure_thumbs();
 
@@ -725,6 +741,7 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
         g_cap_h = (int)g_sc_ext.height;
         g_cap_valid = 1;
         if (menu_shot) save_capture(menu_shot);
+        if (menu_shot == g_present_shot) g_present_shot[0] = 0;
     }
 out:
     plat_rmutex_unlock(&g_pl);
@@ -815,8 +832,7 @@ void gfx_window_start(void) {
         plat_rmutex_unlock(&g_pl);
         int cw = 0, ch = 0;
         wsys_client_size(&cw, &ch);
-        rt_log("gfx: window %dx%d at DPI %u, swapchain %ux%u format %d", cw, ch, gfx_window_dpi(), g_sc_ext.width,
-               g_sc_ext.height, (int)g_sc_fmt);
+        rt_log("gfx: window %dx%d at DPI %u", cw, ch, gfx_window_dpi());
     }
     plat_rmutex_unlock(&g_start_lock);
     vsync_ensure();

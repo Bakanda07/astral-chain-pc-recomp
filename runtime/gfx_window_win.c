@@ -317,7 +317,17 @@ static void window_main(void *arg) {
         if (!background) {
             FLASHWINFO fw = {.cbSize = sizeof fw, .hwnd = g_hwnd, .dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG};
             FlashWindowEx(&fw);
-            g_fs_pending = cfg_fullscreen();
+            if (cfg_fullscreen()) {   // AC_FULLSCREEN=1: cover the monitor now, not at the first activation
+                input_cursor_suspend(1);
+                toggle_fullscreen(g_hwnd);
+                input_cursor_suspend(0);
+                MONITORINFO mi = {sizeof mi};
+                if (GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi))
+                    rt_log("gfx: fullscreen at start (%ldx%ld)", mi.rcMonitor.right - mi.rcMonitor.left,
+                           mi.rcMonitor.bottom - mi.rcMonitor.top);
+            } else {
+                g_fs_pending = 0;
+            }
         }
         note_applied();
         refresh_rate_update(g_hwnd, 1);

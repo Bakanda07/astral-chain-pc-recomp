@@ -146,6 +146,7 @@ void vk_queue_unlock(void);
 // AC_ASPECT); the rest is black.
 void gfx_fit_rect(int cw, int ch, int dw, int dh, int out[4]);
 void vk_present_capture(int on);
+void vk_present_shot(const char *path);   // the next present's swapchain image goes to path as a PNG
 int vk_present_captured(const uint8_t **px, int *w, int *h, VkFormat *fmt);
 
 // The window system's part of device creation (gfx_window_win.c with Win32, gfx_window_sdl.c with SDL): the instance
@@ -330,9 +331,9 @@ typedef struct {
     uint8_t fb_usage;              // created with ATTACHMENT_FEEDBACK_LOOP usage (VK_FEEDBACK_LAYOUT, attachable images)
     uint8_t fb_learned;            // a draw sampled it while it was a written attachment of the open pass: its passes
                                    // attach it in ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT (vk_exec.c vk_exec_pass_begin)
-    uint8_t scale;                 // 1, or AC_SHADOW_SCALE for a shadow map made larger than the game's (vk_texture.c
-                                   // shadow_scale_of): width and height above are the larger ones, the game's regions
-                                   // are multiplied by it
+    float scale;                   // 1, AC_SHADOW_SCALE for a shadow map, or AC_SSAA for a render target made larger
+                                   // than the game's (vk_texture.c texture_scale_of): width and height above are the
+                                   // larger ones, the game's regions are multiplied by it
 } VkTexImage;
 // The window texture the backend presents (vk_backend.c): *image and *format become the float picture the game copied
 // into it, when the last draw into it was that copy and the swapchain is HDR10.
@@ -356,6 +357,7 @@ uint32_t vk_texture_slots_gen(void);
 // its storage address is created, dropped, released or taken back into use. Unlocked; read it before the lookup it
 // guards (a lookup may create an entry). 0 when the slot was never registered: nothing is kept under 0.
 uint64_t vk_texture_slot_token(int id);
+float vk_render_scale(void);                       // AC_SSAA: the factor render targets are made larger by (1 = off)
 uint32_t vk_sampler_gen(void);                      // changes whenever a sampler slot is registered
 void vk_texture_gpu_written(const tex_t *t);        // rendered or copied into by the GPU: no re-upload from storage
 void vk_texture_storage_bound_locked(const VkTexImage *img);   // bound as a storage image in the recording submission

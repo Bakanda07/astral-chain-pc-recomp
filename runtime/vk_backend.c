@@ -17,6 +17,7 @@
 // by the submission it was handed out for. The game runs at most one frame ahead: queueing present N waits until the
 // replay thread handled present N-1. Calls that read or free GPU state that queued work may use drain the queue first
 // (replay_drain), each cause counted.
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,12 +117,18 @@ static void present_image(const tex_t *t, const int crop[4], uint64_t at_ns, uin
         }
         return;
     }
+    static int logged_present;
+    if (!logged_present) {
+        logged_present = 1;
+        rt_log("vk: present image %ux%u (texture %ux%u, scale %.3g)", img->width, img->height, t->d.width, t->d.height,
+               img->scale);
+    }
     PresentJob j = {.image = img->image, .format = img->format, .w = (int)img->width, .h = (int)img->height, .frame = frame,
                     .at = at_ns, .queued = queued, .value = value};
     vk_hdr_present_source(img, &j.image, &j.format);   // AC_HDR: the float picture the game copied into it, same size
     if (crop) {
         j.has_crop = 1;
-        for (int i = 0; i < 4; i++) j.crop[i] = crop[i];
+        for (int i = 0; i < 4; i++) j.crop[i] = (int)lroundf((float)crop[i] * img->scale);
     }
     vk_upload_flush(0);   // an upload vk_texture_get just recorded goes before the blit
     plat_mutex_lock(&pl);

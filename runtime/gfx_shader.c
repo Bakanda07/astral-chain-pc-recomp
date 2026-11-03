@@ -770,6 +770,14 @@ static void reflect(GfxShader *s) {
         s->res[k] = calloc(count ? count : 1, sizeof *s->res[k]);
         json_objects(js, kinds[k], add_res, s, k);
     }
+    // The index Ryujinx's TexelFetchScale and TextureSizeUnscale read render_scale at (TexturePass.cs, less the
+    // render target's entry 0): the textures that are not arrays, then the images that are not arrays, as declared.
+    int idx = 0;
+    for (int k = GFX_RES_TEX; k <= GFX_RES_IMG; k++)
+        for (int i = 0; i < s->nres[k]; i++) {
+            GfxShaderRes *r = &s->res[k][i];
+            r->scale_idx = r->count == 1 && idx < 72 ? (int8_t)idx++ : -1;
+        }
     reflect_spirv(s);
 }
 

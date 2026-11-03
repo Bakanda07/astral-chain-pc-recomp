@@ -94,6 +94,12 @@ static VkDescriptorPool spare_pool[SPARE_POOLS];
 static Chunk spare_chunk[SPARE_CHUNKS];
 static int nspare_pool, nspare_chunk;
 
+#define SCALES 73   // the support buffer's render_scale entries (Ryujinx SupportBuffer.RenderScaleMaxCount)
+typedef struct {
+    float s[SCALES];   // render_scale (support_scales)
+    int32_t nfs;       // frag_scale_count
+} SupScales;
+
 // State of the command buffer being recorded that the Vulkan command buffer itself holds.
 static struct {
     VkPipeline pipe[2];                  // bound per bind point: 0 graphics, 1 compute
@@ -108,6 +114,7 @@ static struct {
     int vb_valid;
     uint8_t support[SUPPORT_BYTES];      // last support buffer and where it lives
     float sup_in[3];                     // the support_fill arguments it was filled from
+    SupScales sup_sc;                    // and the render scales (support_scales)
     VkBuffer sup_buf;
     VkDeviceSize sup_off;
     int sup_valid;
@@ -1429,7 +1436,10 @@ static VkDescriptorSet alloc_set(VkExec *ex, VkDescriptorSetLayout layout) {
 }
 
 static void support_in(const VkExec *ex, float in[3]) {   // what support_fill reads: viewport size, point size
-    float k = ex->pass_scale > 1 ? (float)ex->pass_scale : 1.0f;
+    // With AC_SSAA the shaders work in the game's pixels (support_scales divides gl_FragCoord by the pass scale), so the
+    // viewport stays the game's: viewport_inverse maps pixel positions to clip space and viewport_size flips
+    // gl_FragCoord.y. Without it, a larger shadow map's pass sees its own pixels.
+    float k = ex->pass_scale > 1 && vk_render_scale() <= 1.0f ? (float)ex->pass_scale : 1.0f;
     in[0] = ex->in_pass && ex->has_vp ? ex->vp[0][2] * k : (float)ex->pass_w;
     in[1] = ex->in_pass && ex->has_vp ? ex->vp[0][3] * k : (float)ex->pass_h;
     in[2] = ex->point_size > 0 ? ex->point_size : 1.0f;
@@ -1465,21 +1475,53 @@ static const float *shadow_spread_params(void) {
     if (p[0] == 0) {
         int scale = cfg_int("AC_SHADOW_SCALE");
         scale = scale < 1 ? 1 : scale > 4 ? 4 : scale;
-        p[0] = 1.0f / (float)scale;
+        p[0] = 1.0f / ((float)scale * vk_render_scale());
     }
     return p;
 }
 
-static void support_fill(uint8_t *b, float w, float h, float point_size) {
+// AC_SSAA: the support buffer's frag_scale_count and render_scale array, which the translator reads (Ryujinx
+// InstEmitAttribute, TexturePass and HelperFunctionManager TexelFetchScale / TextureSizeUnscale). Entry 0 is the render
+// target's scale: fragment shaders divide gl_FragCoord.xy by it, so code that indexes buffers or texels by pixel (tiled
+// lighting, for one) keeps the game's coordinates. Entry 1 + i is the scale of the stage's texture or image i
+// (GfxShaderRes.scale_idx): integer texel fetches and image loads multiply their coordinates by it and size queries
+// divide by it, so the game's shaders address an enlarged target as if it had the game's size. Fragment shaders take it
+// negated, which adds gl_FragCoord's place inside the enlarged texel, as Ryujinx does for a texture scaled like the
+// render target. Vertex shaders read theirs after frag_scale_count entries; they stay 1.
+static void support_scales(const VkExec *ex, const VkPipeInfo *info, SupScales *o) {
+    for (int i = 0; i < SCALES; i++) o->s[i] = 1.0f;
+    o->nfs = 0;
+    if (vk_render_scale() <= 1.0f) return;
+    int gfx = info->bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
+    o->s[0] = gfx && ex->pass_scale > 1.0f ? ex->pass_scale : 1.0f;
+    int want = gfx ? GFX_STAGE_FS : GFX_STAGE_CS;
+    vk_texture_lock();
+    for (uint32_t i = 0; i < info->n_bindings; i++) {
+        const VkPipeBinding *b = &info->bindings[i];
+        const GfxShaderRes *r = b->res;
+        if ((b->kind != GFX_RES_TEX && b->kind != GFX_RES_IMG) || b->stage != want || !r || r->scale_idx < 0 || r->slot < 0)
+            continue;
+        if (b->type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || b->type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) continue;
+        if (r->scale_idx + 1 > o->nfs && gfx) o->nfs = r->scale_idx + 1;
+        int st = nvn_stage_of(b->stage), img = b->kind == GFX_RES_IMG;
+        uint64_t h = img ? (r->slot < 32 ? ex->img[st][r->slot] : 0) : (r->slot < 128 ? ex->tex[st][r->slot] : 0);
+        const VkTexImage *t = h ? vk_texture_by_id_locked((int)(h & 0xfffff), NULL, NULL) : NULL;
+        if (!t || !(t->scale > 1.0f)) continue;
+        o->s[1 + r->scale_idx] = gfx ? -t->scale : t->scale;
+    }
+    vk_texture_unlock();
+}
+
+static void support_fill(uint8_t *b, float w, float h, float point_size, const SupScales *sc) {
     memset(b, 0, SUPPORT_BYTES);
     float inv[4] = {w > 0 ? 2.0f / w : 0, h > 0 ? 2.0f / h : 0, 0, 0}, size[4] = {w, h, 0, 0};
     memcpy(b + 144, inv, 16);
     memcpy(b + 160, size, 16);
-    const float one = 1.0f;
+    memcpy(b + 176, &sc->nfs, 4);       // frag_scale_count
     memcpy(b + 1392, &point_size, 4);   // point_size (translator patch 0008): vertex shaders that write none output it
     memcpy(b + 1408, pcss_params(), 16);   // pcss (translator patch 0010): soft sun shadows in the cascade compares
     memcpy(b + 1424, shadow_spread_params(), 16);    // shadow_spread (translator patch 0011): sun shadow filter width
-    for (int i = 0; i < 73; i++) memcpy(b + 192 + 16 * i, &one, 4);   // render scale 1: the host renders at guest size
+    for (int i = 0; i < SCALES; i++) memcpy(b + 192 + 16 * i, &sc->s[i], 4);   // render_scale (support_scales)
     if (vk_hdr_wanted()) {   // read by the HDR tonemap only (shaders/hdr_tonemap.frag), which declares it past the translator's
         float hdr[4];
         vk_hdr_support(hdr);
@@ -1672,6 +1714,9 @@ static int bind_sig(const VkExec *ex, const VkPipeInfo *info) {
         memcpy(&a, in, 8), memcpy(&ps, &in[2], 4);
         PUT(a);
         PUT(ps);
+        uint32_t ks;   // support_scales: the textures' scales follow from the bound slots compared below
+        memcpy(&ks, &ex->pass_scale, 4);
+        PUT(ks);
     }
     if (l->c0) PUT(c0_binst);
     for (int i = 0; i < l->np; i++) PUT(ubo_ptr(ex, l->p[i].st, l->p[i].res));
@@ -1753,11 +1798,14 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
         int st = nvn_stage_of(b->stage), kind = 0;   // kind: 0 buffer, 1 image, 2 texel buffer view
         if (b->kind == VK_PIPE_SUPPORT) {
             float in[3];
+            SupScales sc;
             support_in(ex, in);
-            if (!B.sup_valid || memcmp(in, B.sup_in, sizeof in)) {   // support_fill reads only these
+            support_scales(ex, info, &sc);
+            if (!B.sup_valid || memcmp(in, B.sup_in, sizeof in) || memcmp(&sc, &B.sup_sc, sizeof sc)) {   // support_fill reads only these
                 uint8_t tmp[SUPPORT_BYTES];
-                support_fill(tmp, in[0], in[1], in[2]);
+                support_fill(tmp, in[0], in[1], in[2], &sc);
                 memcpy(B.sup_in, in, sizeof in);
+                B.sup_sc = sc;
                 if (!B.sup_valid || memcmp(tmp, B.support, SUPPORT_BYTES)) {   // a new buffer only when the contents changed
                     VkBuffer sb;
                     VkDeviceSize so;

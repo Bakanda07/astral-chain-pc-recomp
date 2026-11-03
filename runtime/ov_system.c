@@ -39,15 +39,15 @@ static const char *caller(Cpu *c, char *buf, int n) { return ldr_describe(c->x[3
 
 // ==== nn::oe (services.c)
 // AC_OPERATION_MODE, read once: 1 handheld (OperationMode 0, PerformanceMode Normal 0), 0 docked (1, Boost 1).
+static volatile int32_t g_handheld = -1;
 int ov_handheld(void) {
-    static volatile int32_t v = -1;
-    int32_t h = v;
+    int32_t h = g_handheld;
     if (h < 0) {
         const char *e = cfg_value("AC_OPERATION_MODE");
         if (!strcmp(e, "docked")) h = 0;
         else if (!strcmp(e, "handheld")) h = 1;
         else rt_fatal("AC_OPERATION_MODE must be docked or handheld, not '%s'", e);
-        if (plat_cas32(&v, h, -1) == -1)
+        if (plat_cas32(&g_handheld, h, -1) == -1)
             rt_log("oe: operation mode reported to the game: %s", h ? "handheld (performance normal)"
                                                                   : "docked (performance boost)");
     }
