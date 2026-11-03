@@ -49,7 +49,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_xlate  # noqa: E402
 import check_content  # noqa: E402
-import shader_list  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 MAIN_ROOT = (ROOT / 'build').resolve().parent   # build/, generated/, toolchain/ and refs/ are junctions in a worktree
@@ -59,7 +58,6 @@ WORK = MAIN_ROOT / 'toolchain' / 'release-work'   # unpacked downloads
 MSYS2 = 'https://repo.msys2.org/mingw/ucrt64/'
 SDL_VERSION = '3.4.18'
 LLVM_VERSION = '20261020'
-MNG_COMMIT = 'b75be8cfa704df3701e86130c8ced268e79d6b11'   # MacNativeGames, the shader list (refs/MacNativeGames)
 # name: (url, sha256)
 PINS = {
     'python-embed': ('https://www.python.org/ftp/python/3.14.9/python-3.14.9-embed-amd64.zip',
@@ -105,10 +103,9 @@ LLVM_SKIP_DIRS = {'aarch64-w64-mingw32', 'armv7-w64-mingw32', 'i686-w64-mingw32'
 LLVM_SKIP_SUFFIXES = {'.idl', '.tlb'}
 
 # tools/ files the installer steps run (and what they import), copied from the repo.
-TOOLS_FILES = ['build_game.py', 'build_shaders.py', 'button_icons.py', 'check_content.py', 'extract.py', 'hostmem.py',
-               'make_romfs_patches.py', 'pack_shader_cache.py', 'prepare_shaders.py', 'romfs_index.py', 'shader_census.py',
-               'shader_list.py', 'ultrawide_layout.py', 'cheats.py', 'exefs_patches.py']
-TOOLS_DIRS = ['vendor/macnativegames', 'data']   # data/: expected hashes
+TOOLS_FILES = ['build_game.py', 'build_shaders.py', 'check_content.py', 'exefs_patches.py', 'extract.py',
+               'hostmem.py', 'romfs_index.py']
+TOOLS_DIRS = ['data']   # data/: the expected hashes of the 1.0.0 dump
 RUNTIME_SUFFIXES = {'.h', '.inc', '.ico'}   # .ico: the installer window icon
 
 PROBES = ['--probe-kernel', '--probe-vkexec', '--probe-nvn-tex', '--probe-shader']
@@ -369,11 +366,11 @@ def collect_licenses(out):
 # ---- runtime/, recomp/, tools/, data/ ---------------------------------------------------------------------------------
 
 def lifted_version():
-    """The game version whose generated C the runtime library and --prove build against: v121, else v143."""
-    for version in ('v121', 'v143'):
-        if (MAIN_ROOT / 'generated' / version / 'layout.json').is_file():
-            return version
-    sys.exit('neither generated/v121 nor generated/v143 exists: extract a game version and lift it first '
+    """The game version whose generated C the runtime library and --prove build against: this port builds the base
+    game, so generated/v0."""
+    if (MAIN_ROOT / 'generated' / 'v0' / 'layout.json').is_file():
+        return 'v0'
+    sys.exit('generated/v0 is missing: extract the base game and lift it first '
              '(tools/extract.py, recomp/gen.py; docs/building.md)')
 
 
@@ -405,9 +402,6 @@ def build_sources(out):
         shutil.copy2(ROOT / 'tools' / f, out / 'tools' / f)
     for d in TOOLS_DIRS:
         copy_tree(ROOT / 'tools' / d, out / 'tools' / d, lambda r: '__pycache__' in r or r.endswith('.md'))
-    (out / 'data').mkdir(exist_ok=True)
-    text = shader_list.history(MAIN_ROOT / 'refs' / 'MacNativeGames', MNG_COMMIT)
-    (out / 'data' / 'shader_list.tsv').write_text(text, encoding='utf-8', newline='\n')
     copy_tree(ROOT / 'installer', out / 'installer', lambda r: '__pycache__' in r or r.startswith('launcher/'))
     shutil.copy2(ROOT / 'astralchain.ini.example', out / 'astralchain.ini.example')
     shutil.copy2(ROOT / 'THIRD_PARTY_NOTICES.md', out / 'THIRD_PARTY_NOTICES.md')
@@ -499,6 +493,14 @@ def check_bundle(out):
     print('bundle check: the window built every screen in both languages and closed')
 
 
+def drop_bytecode(out):
+    """Remove what running the folder's own setup left behind: __pycache__ next to the sources and in python/, and the
+    setup's default temp folder (temp/), which a player's run of this folder writes. The release ships sources only."""
+    for cache in out.rglob('__pycache__'):
+        shutil.rmtree(cache, ignore_errors=True)
+    shutil.rmtree(out / 'temp', ignore_errors=True)
+
+
 def sizes(out):
     rows = [(p.name if p.is_dir() else p.name, dir_size(p) if p.is_dir() else p.stat().st_size) for p in sorted(out.iterdir())]
     for name, n in rows:
@@ -510,7 +512,7 @@ def write_zip(out, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for p in sorted(out.rglob('*')):
-            if p.is_file():
+            if p.is_file() and 'temp' not in p.relative_to(out).parts[:1]:
                 info = zipfile.ZipInfo((Path(out.name) / p.relative_to(out)).as_posix(), (1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = 0o644 << 16
@@ -573,6 +575,7 @@ def main():
     collect_licenses(out)
     check_folder(out)
     check_bundle(out)
+    drop_bytecode(out)
     sizes(out)
     if args.zip:
         write_zip(out, args.zip.resolve())

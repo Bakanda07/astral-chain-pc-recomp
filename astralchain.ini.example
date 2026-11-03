@@ -1,6 +1,6 @@
-# totk.ini: settings for totk.exe. Copy this file to totk.ini next to totk.exe and remove the '#' of a line to change it.
-# Each line shows the default; on a Steam Deck the device profile ([display]) changes a few of them. A TOTK_*
-# environment variable of the same name (TOTK_FPS_LIMIT for fps_limit) overrides the file. Keys are case-insensitive;
+# astralchain.ini: settings for astralchain.exe. Copy this file to astralchain.ini next to astralchain.exe and remove
+# the '#' of a line to change it. Each line shows the default; on a Steam Deck the device profile ([display]) changes
+# a few of them. An AC_* environment variable of the same name (AC_FPS_LIMIT for fps_limit) overrides the file. Keys are case-insensitive;
 # '#' and ';' start a comment; [sections] only group lines.
 
 [frame rate]
@@ -182,7 +182,7 @@
 # pcss = 0
 
 # NVIDIA DLSS / DLAA for the 3D scene, on NVIDIA RTX GPUs with nvngx_dlss.dll (from NVIDIA's DLSS SDK) next to
-# totk.exe; elsewhere the setting does nothing. The HUD is drawn after it and is not touched. Read at start.
+# astralchain.exe; elsewhere the setting does nothing. The HUD is drawn after it and is not touched. Read at start.
 # dlaa = 0
 # What DLSS works from: dlaa (the 3D scene at full size), quality, balanced or performance (the scene at 67, 58 or
 # 50 % of the output, scaled up by DLSS; these replace render_scale and sharpen texture filtering to match). With dlaa
@@ -280,7 +280,7 @@
 
 [mods]
 # Folder with the player's mods, one subfolder per mod (<name>/romfs, <name>/exefs, <name>/cheats). Default: mods next
-# to totk.exe.
+# to astralchain.exe.
 # mods_dir =
 # Load order, top first, names separated by |. The in-game menu (Mods) writes it; a mod not listed goes to the bottom.
 # mods_order =
@@ -296,7 +296,7 @@
 # their mods into the mods folder instead ([mods]). Default: none.
 # romfs_mods =
 # Folder with the Switch shared fonts (BFTTF files, tools/extract_fonts.py output), for Chinese and Korean text.
-# Default: shared-fonts next to totk.exe. TOTK_SHARED_FONTS overrides it.
+# Default: shared-fonts next to astralchain.exe. AC_SHARED_FONTS overrides it.
 # shared_fonts =
 
 [cheats]
@@ -309,7 +309,7 @@
 # Extra lines in the log, comma separated: svc, host, ipc, fs, gfx, perf, sched, audio, present or all. The menu's
 # Performance log sets perf (frame timings). Default: none.
 # trace = perf
-# Flight recorder: keeps the last frames and saves them to a flight folder next to the folder of totk.exe when a frame
+# Flight recorder: keeps the last frames and saves them to a flight folder next to the folder of astralchain.exe when a frame
 # takes longer than flight_spike_ms (0 to 60000).
 # flight = 0
 # flight_spike_ms = 100

@@ -205,7 +205,6 @@ class ReleaseFilesTest(unittest.TestCase):
         used = set(re.findall(r"layout\.tools / '(\w+\.py)'", text))
         for names in re.findall(r"layout\.tools / n for n in \((.*?)\)", text, re.S):
             used |= set(re.findall(r"'(\w+\.py)'", names))
-        self.assertIn('cheats.py', used)
         self.assertEqual(used - set(make_release.TOOLS_FILES), set())
 
 
@@ -232,17 +231,6 @@ class LiftKeyTest(unittest.TestCase):
         (self.dest / 'exefs' / 'main').write_bytes(bytes(0x48))
         self.assertEqual(self.key(), before)
 
-    def test_cheat_files_change_the_key(self):
-        before = self.key()
-        self.add_cheats('277178B7DBA1B6D4.txt', '[a]')
-        added = self.key()
-        self.assertNotEqual(added, before)
-        self.add_cheats('277178B7DBA1B6D4.txt', '[b]')
-        edited = self.key()
-        self.assertNotEqual(edited, added)
-        self.add_cheats('277178B7DBA1B6D4.txt', '[c]', mod='Other', where='atmosphere/contents/0100F2C0115B6000/cheats')
-        self.assertNotEqual(self.key(), edited)
-
     def test_exefs_patch_files_change_the_key(self):
         before = self.key()
         self.add_cheats('dynamic-fps.pchtxt', '@nsobid-277178B7DBA1B6D4', mod='Fps', where='exefs')
@@ -255,13 +243,13 @@ class LiftKeyTest(unittest.TestCase):
         self.assertEqual(self.key(), both)
 
     def test_status_and_other_files_keep_the_key(self):
-        self.add_cheats('277178B7DBA1B6D4.txt', '[a]')
+        self.add_cheats('dynamic-fps.pchtxt', '@nsobid-277178B7DBA1B6D4', mod='Fps', where='exefs')
         before = self.key()
         (self.dest / 'build-cache').mkdir()
-        (self.dest / 'build-cache' / 'cheats.status').write_text('written by lift')
-        self.add_cheats('readme.md', 'not a cheat file')
-        (self.dest / 'mods' / 'Cheats' / 'romfs').mkdir()
-        (self.dest / 'mods' / 'Cheats' / 'romfs' / 'a.txt').write_text('a RomFS file')
+        (self.dest / 'build-cache' / 'exefs.status').write_text('written by lift')
+        self.add_cheats('readme.md', 'not a patch file', mod='Fps', where='exefs')
+        (self.dest / 'mods' / 'Fps' / 'romfs').mkdir()
+        (self.dest / 'mods' / 'Fps' / 'romfs' / 'a.txt').write_text('a RomFS file')
         self.assertEqual(self.key(), before)
 
 
@@ -328,11 +316,11 @@ class CleanupTest(unittest.TestCase):
                                    temp=temp, lang='en-US', state={},
                                    layout=SimpleNamespace(ini_example=ROOT / 'astralchain.ini.example', dev=False,
                                                           python=base / 'python' / 'python.exe', root=base / 'release'))
-        self.saved = steps.expected_update
-        steps.expected_update = lambda ctx: self.expected
+        self.saved = steps.expected_game
+        steps.expected_game = lambda ctx: self.expected
 
     def tearDown(self):
-        self.steps.expected_update = self.saved
+        self.steps.expected_game = self.saved
         self.ctx.reporter.close()
         self.tmp.cleanup()
 
@@ -371,8 +359,8 @@ class CleanupTest(unittest.TestCase):
 
 
 class BaseGameCheckTest(unittest.TestCase):
-    """Issue #261: an update NSP chosen as the base game was reported as "not Tears of the Kingdom"."""
-    BASE, UPDATE = '0100F2C0115B6000', '0100F2C0115B6800'
+    """A file that holds an update or a combined package is named as such, not reported as another game."""
+    BASE, UPDATE = '01007300020FA000', '01007300020FA800'
 
     @staticmethod
     def nca(content_type, title_id):
@@ -381,8 +369,6 @@ class BaseGameCheckTest(unittest.TestCase):
     def test_update_package_names_the_update(self):
         # An update NSP keeps the base title id on its Program NCA; only its Meta NCA carries the update id.
         records = [self.nca(0, self.BASE), self.nca(1, self.UPDATE)]
-        with self.assertRaises(ValueError):
-            steps.program_nca(records)
         self.assertEqual(steps.base_misuse(records), 'check.base_is_update')
 
     def test_combined_package_is_named(self):
@@ -394,107 +380,9 @@ class BaseGameCheckTest(unittest.TestCase):
         self.assertIsNone(steps.base_misuse(records))
         self.assertEqual(steps.program_nca(records)[0]['title_id'], self.BASE)
 
-
-class FontsTest(unittest.TestCase):
-    """The fonts step: keyed by language and firmware, a no-op without firmware, writes dest/shared-fonts."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        base = Path(self.tmp.name)
-        self.dest, temp, self.firmware = base / 'dest', base / 'temp', base / 'firmware'
-        temp.mkdir()
-        self.firmware.mkdir()
-        (self.firmware / 'a.nca').write_bytes(b'nca')
-        self.keys = base / 'prod.keys'
-        self.keys.write_text('header_key = 00\n')
-        self.ctx = SimpleNamespace(dest=self.dest, temp=temp, lang='zh-Hans', state={},
-                                   layout=SimpleNamespace(tools=ROOT / 'tools', root=ROOT),
-                                   reporter=Reporter(out=io.StringIO()),
-                                   options=SimpleNamespace(lang='zh-Hans', firmware=self.firmware, keys=str(self.keys)))
-        self.saved_run_tool = steps.run_tool
-
-    def tearDown(self):
-        steps.run_tool = self.saved_run_tool
-        self.ctx.reporter.close()
-        self.tmp.cleanup()
-
-    def fake_tool(self, files=None, code=0):
-        """Stand-in for extract_shared_fonts.py: writes the requested files where --output points."""
-        def run(ctx, step, script, args):
-            out = Path(args[args.index('--output') + 1])
-            out.mkdir(parents=True)
-            for name in steps.SHARED_FONT_FILES if files is None else files:
-                (out / name).write_bytes(b'bfttf')
-            (out / 'manifest.json').write_text('{}')
-            log = ctx.temp / 'fonts.log'
-            log.write_text('error line\n')
-            return code, log
-        steps.run_tool = run
-
-    def test_all_steps_order(self):
-        self.assertEqual([s.id for s in steps.all_steps()],
-                         ['check', 'fonts', 'extract', 'lift', 'compile', 'prepare', 'cleanup'])
-
-    def test_extracts_into_the_install_folder(self):
-        self.fake_tool()
-        self.assertEqual(steps.Fonts().run(self.ctx), {'files': 6})
-        self.assertTrue(steps.shared_fonts_ready(self.dest))
-        self.assertEqual(sorted(p.name for p in (self.dest / 'shared-fonts').iterdir()),
-                         sorted((*steps.SHARED_FONT_FILES, 'manifest.json')))
-
-    def test_noop_without_firmware(self):
-        self.ctx.options.firmware = None
-        self.fake_tool()
-        self.assertEqual(steps.Fonts().run(self.ctx), {})
-        self.assertFalse((self.dest / 'shared-fonts').exists())
-
-    def test_noop_for_other_languages(self):
-        self.ctx.lang, self.ctx.options.lang = 'en-US', 'en-US'
-        self.fake_tool()
-        self.assertEqual(steps.Fonts().run(self.ctx), {})
-        self.assertFalse((self.dest / 'shared-fonts').exists())
-
-    def test_failed_extraction_keeps_the_old_folder(self):
-        self.fake_tool()
-        steps.Fonts().run(self.ctx)
-        self.fake_tool(code=1)
-        with self.assertRaises(steps.InstallError) as e:
-            steps.Fonts().run(self.ctx)
-        self.assertEqual(e.exception.id, 'fonts.failed')
-        self.assertTrue(steps.shared_fonts_ready(self.dest))
-
-    def test_incomplete_output_is_an_error(self):
-        self.fake_tool(files=steps.SHARED_FONT_FILES[:1])
-        with self.assertRaises(steps.InstallError) as e:
-            steps.Fonts().run(self.ctx)
-        self.assertEqual(e.exception.id, 'fonts.incomplete')
-
-    def test_current_tracks_language_and_output(self):
-        fonts = steps.Fonts()
-        self.assertFalse(fonts.current(self.ctx, {}))
-        self.fake_tool()
-        fonts.run(self.ctx)
-        self.assertTrue(fonts.current(self.ctx, {}))
-        self.ctx.options.lang = 'en-US'
-        self.assertTrue(fonts.current(self.ctx, {}))
-        self.ctx.options.lang = 'zh-Hans'
-        (self.dest / 'shared-fonts' / '0-standard.bfttf').unlink()
-        self.assertFalse(fonts.current(self.ctx, {}))
-
-    def test_key_changes_with_language_and_firmware(self):
-        fonts = steps.Fonts()
-        zh = fonts.key(self.ctx)
-        self.ctx.options.lang = 'en-US'
-        self.assertNotEqual(zh, fonts.key(self.ctx))
-        self.ctx.options.lang = 'zh-Hans'
-        (self.firmware / 'b.nca').write_bytes(b'other')
-        self.assertNotEqual(zh, fonts.key(self.ctx))
-
-    def test_registered_child_is_used(self):
-        nested = self.firmware / 'registered'
-        nested.mkdir()
-        (nested / 'c.nca').write_bytes(b'nca')
-        self.assertEqual(steps.firmware_dir(self.firmware), nested)
+    def test_another_title_is_rejected(self):
+        with self.assertRaises(ValueError):
+            steps.program_nca([self.nca(0, '0100F2C0115B6000')])
 
 
 class EventsTest(unittest.TestCase):
@@ -520,9 +408,10 @@ class EventsTest(unittest.TestCase):
         catalog = json.loads((ROOT / 'installer' / 'text' / 'en.json').read_text(encoding='utf-8'))
         used = set()
         for path in (ROOT / 'installer').glob('*.py'):
-            used |= set(re.findall(r"InstallError\('([a-z_.]+)'", path.read_text()))
-            used |= set(re.findall(r"warning\('([a-z_.]+)'", path.read_text()))
-            used |= {f'phase.{s}.{p}' for s, p in re.findall(r"progress\('(\w+)', '(\w+)'[,)]", path.read_text())}
+            used |= set(re.findall(r"InstallError\('([a-z_.]+)'", path.read_text(encoding='utf-8')))
+            used |= set(re.findall(r"warning\('([a-z_.]+)'", path.read_text(encoding='utf-8')))
+            used |= {f'phase.{s}.{p}' for s, p in re.findall(r"progress\('(\w+)', '(\w+)'[,)]",
+                                                                  path.read_text(encoding='utf-8'))}
         self.assertEqual(sorted(i for i in used if i not in catalog), [])
 
 

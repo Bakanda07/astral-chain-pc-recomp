@@ -18,8 +18,8 @@ ALIASES = {'zh-CN': 'zh-Hans', 'zh-TW': 'zh-Hant'}
 # firmware folder when the player gives one.
 NEED_SHARED_FONTS = ('ko', 'zh-Hans', 'zh-Hant')
 
-ACTIVE = re.compile(r'^(\s*)(?:totk_)?lang(\s*=\s*)(.*?)(\s*)$', re.IGNORECASE)
-COMMENTED = re.compile(r'^\s*[#;]\s*(?:totk_)?lang\s*=.*$', re.IGNORECASE)
+ACTIVE = re.compile(r'^(\s*)lang(\s*=\s*)(.*?)(\s*)$', re.IGNORECASE)
+COMMENTED = re.compile(r'^\s*[#;]\s*lang\s*=.*$', re.IGNORECASE)
 SECTION = re.compile(r'^\s*\[(.*)\]\s*$')
 
 

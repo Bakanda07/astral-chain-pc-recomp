@@ -37,12 +37,13 @@ from pathlib import Path
 WIN = os.name == 'nt'
 EXE = '.exe' if WIN else ''
 UCRT = Path(r'C:\msys64\ucrt64\bin')
-SUPPORTED = ('1.2.1', '1.4.3', '1.1.0')   # updates the installer builds; the check identifies the player's by hash
+SUPPORTED = ('1.0.0',)   # the game version the installer builds: the base game, no update
 
 
 def version_tag(version):
-    """'1.4.3' -> 'v143': the version name of build_game.py, make_romfs_patches.py and the patch tables."""
-    return 'v' + version.replace('.', '')
+    """'1.0.0' -> 'v0': the version name of build_game.py, recomp/gen.py and the patch tables. The port builds the base
+    game, whose tables and generated C are named v0."""
+    return 'v0' if version == '1.0.0' else 'v' + version.replace('.', '')
 
 
 @dataclass(frozen=True)
@@ -90,17 +91,14 @@ class Layout:
     def missing(self, cpu='v3'):
         """Paths the steps need that do not exist. cpu picks the runtime library the host will use."""
         lib = self.runtime_lib_for(cpu)
-        need = [self.python, self.tools / 'extract.py', self.tools / 'build_game.py', self.tools / 'prepare_shaders.py',
-                self.tools / 'pack_shader_cache.py', self.tools / 'make_romfs_patches.py', self.tools / 'ultrawide_layout.py',
-                self.tools / 'button_icons.py',
-                self.tools / 'vendor' / 'macnativegames' / 'extract_shared_fonts.py',
-                self.recomp / 'gen.py',
+        need = [self.python, self.tools / 'extract.py', self.tools / 'build_game.py', self.tools / 'build_shaders.py',
+                self.tools / 'check_content.py', self.tools / 'romfs_index.py', self.tools / 'exefs_patches.py',
+                self.tools / 'data' / 'expected-v1.0.0.json',
+                self.recomp / 'gen.py', self.patches(SUPPORTED[0]),
                 self.clang,
                 *((self.deps / 'include', self.deps / 'lib') if self.deps else ()), self.runtime, *([lib] if lib else ()),
                 self.ninja, self.hactool,
-                self.xlate, *self.dlls, *(f(v) for v in SUPPORTED for f in (self.patches, self.expected))]
-        if self.shader_list:
-            need.append(self.shader_list)
+                self.xlate, *self.dlls, self.expected(SUPPORTED[0])]
         if self.sysroot:
             need.append(self.sysroot)
         return [str(p) for p in need if not p.exists()]

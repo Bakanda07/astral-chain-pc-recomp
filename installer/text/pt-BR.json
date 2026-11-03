@@ -61,7 +61,7 @@
  "check.file_unreadable": "Não foi possível ler o arquivo de {input}: {detail}",
  "check.ticket_personalized": "O arquivo de {input} tem um ticket personalizado; é preciso um ticket comum.",
  "check.ticket_missing": "O arquivo de {input} não tem o ticket de que o conteúdo precisa.",
- "check.base_not_totk": "O arquivo do jogo base não é Astral Chain ({detail}).",
+ "check.base_not_astral": "O arquivo do jogo base não é Astral Chain ({detail}).",
  "check.base_is_update": "O arquivo do jogo base é uma atualização. Escolha aqui o NSP ou XCI do jogo base (versão 1.0.0) e este arquivo como a atualização.",
  "check.base_combined": "O arquivo do jogo base contém vários pacotes (jogo base, atualização ou DLC em um só arquivo). Escolha um dump do jogo base que contenha só o jogo.",
  "check.update_not_nsp": "A atualização precisa ser um arquivo NSP.",
@@ -78,6 +78,7 @@
 
  "extract.exefs_mismatch": "O código do jogo extraído não corresponde à versão {version} ({modules}).",
  "extract.romfs_merge_failed": "Falha ao aplicar a atualização aos dados do jogo: {detail}. Detalhes: {log}",
+ "extract.romfs_failed": "Falha ao extrair os dados do jogo: {detail}.",
  "extract.romfs_mismatch": "Os dados do jogo extraídos não correspondem à versão {version} (tamanho {size}, checksum {sha256}...).",
  "fonts.failed": "A extração das fontes compartilhadas falhou (código de saída {code}): {detail}. Detalhes: {log}",
  "fonts.incomplete": "A extração das fontes compartilhadas não gravou todos os arquivos ({files}).",

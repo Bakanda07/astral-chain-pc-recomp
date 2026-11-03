@@ -61,7 +61,7 @@
  "check.file_unreadable": "Не удаётся прочитать файл «{input}»: {detail}",
  "check.ticket_personalized": "В файле «{input}» личный тикет; нужен общий тикет.",
  "check.ticket_missing": "В файле «{input}» нет тикета, который нужен его содержимому.",
- "check.base_not_totk": "Файл базовой игры — не Astral Chain ({detail}).",
+ "check.base_not_astral": "Файл базовой игры — не Astral Chain ({detail}).",
  "check.base_is_update": "Файл базовой игры — это обновление. Выберите здесь NSP или XCI базовой игры (версия 1.0.0), а этот файл укажите как обновление.",
  "check.base_combined": "Файл базовой игры содержит несколько пакетов (игра, обновление или DLC в одном файле). Выберите дамп, в котором только базовая игра.",
  "check.update_not_nsp": "Обновление должно быть файлом NSP.",
@@ -78,6 +78,7 @@
 
  "extract.exefs_mismatch": "Распакованный код игры не соответствует версии {version} ({modules}).",
  "extract.romfs_merge_failed": "Не удалось применить обновление к данным игры: {detail}. Подробности: {log}",
+ "extract.romfs_failed": "Не удалось извлечь данные игры: {detail}.",
  "extract.romfs_mismatch": "Распакованные данные игры не соответствуют версии {version} (размер {size}, контрольная сумма {sha256}...).",
  "fonts.failed": "Не удалось извлечь общие шрифты (код выхода {code}): {detail}. Подробности: {log}",
  "fonts.incomplete": "При извлечении общих шрифтов записаны не все файлы ({files}).",

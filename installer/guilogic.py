@@ -27,7 +27,7 @@ TEXT = Path(__file__).resolve().parent / 'text'
 UI_LANGUAGES = ('en', 'ru', 'pt-BR', 'zh-Hans')
 # what the language switch in the window's corner shows for each
 UI_LANGUAGE_LABELS = {'en': 'English', 'ru': 'Русский', 'pt-BR': 'Português (Brasil)', 'zh-Hans': '简体中文'}
-STEP_ORDER = ('check', 'fonts', 'extract', 'lift', 'compile', 'prepare', 'cleanup')
+STEP_ORDER = ('check', 'extract', 'lift', 'compile', 'cleanup')
 # message parameter -> catalog id prefix of the names that replace its raw values
 PARAM_NAMES = {'lang': 'lang.', 'known': 'lang.', 'step': 'step.', 'input': 'param.input.'}
 LANG_RU = 0x19   # primary language id of Russian in a Windows LANGID
@@ -132,14 +132,12 @@ def amount(cat, done, total, unit):
 @dataclass
 class Form:
     base: str = ''
-    update: str = ''
     keys: str = ''
-    firmware: str = ''
     lang: str = ''
     dest: str = ''
 
     def installed_state(self):
-        """The recorded state of the install folder (totk-install.json), or None. Never raises."""
+        """The recorded state of the install folder (astralchain-install.json), or None. Never raises."""
         if not self.dest.strip():
             return None
         try:
@@ -177,8 +175,8 @@ class Form:
 
     def command(self, python, root=None, temp=None, verify_hashes=False):
         cmd = [str(python), '-m', 'installer']
-        for flag, value in (('--base', self.base), ('--update', self.update), ('--keys', self.keys),
-                            ('--firmware', self.firmware), ('--lang', self.lang), ('--dest', self.dest)):
+        for flag, value in (('--base', self.base), ('--keys', self.keys), ('--lang', self.lang),
+                            ('--dest', self.dest)):
             if value.strip():
                 cmd += [flag, value.strip()]
         if root:

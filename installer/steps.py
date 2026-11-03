@@ -1,18 +1,17 @@
-"""The seven setup steps of docs/installer.md: check, fonts, extract, lift, compile, prepare, cleanup.
+"""The five setup steps of docs/installer.md: check, extract, lift, compile, cleanup.
 
-Extraction runs in this process through tools/extract.py (the package's sibling tools/, which ships with it); fonts
-runs the vendored extract_shared_fonts.py on the firmware folder; lift, compile and prepare run the bundled Python on
-recomp/gen.py, tools/build_game.py, tools/make_romfs_patches.py and tools/prepare_shaders.py, whose output goes to
+Extraction runs in this process through tools/extract.py (the package's sibling tools/, which ships with it); lift and
+compile run the bundled Python on recomp/gen.py and tools/build_game.py, whose output goes to
 <temp>/logs/<step>-<tool>.log and is read for progress. No Win32 call here: the host check is a small C program built
-with the bundled clang (hostcheck.c).
+with the bundled clang (hostcheck.c). The port builds the base game only, so there is no update to merge and no
+firmware folder to read: the game's own data carries everything.
 
-Install folder: exefs/, romfs/ (romfs.bin, index.json), profile/, shared-fonts/ (Chinese and Korean text), astralchain.exe
-and its DLLs, romfs-index.bin, romfs-patches/, romfs-patches-xbox/, romfs-patches-xbox-label/, ac_xlate.exe, the
-shader state of astralchain.exe --prepare-shaders, astralchain.ini, totk-install.json.
-Temp folder (<temp>/<dest name>-<hash>): check/ (ExeFS of both inputs, the host check), gen/ (C), build/ (objects),
-logs/. The cleanup keeps gen/, build/ and logs/: the next run lifts into the same gen/, where recomp/gen.py rewrites
-only the chunks whose C changed, and Ninja in build/ recompiles only those. A change of the mods' code cheats then
-costs the lift (about a minute) and the chunks it touches, not a full compile.
+Install folder: exefs/, romfs/ (romfs.bin, index.json), profile/, astralchain.exe and its DLLs, romfs-index.bin,
+ac_xlate.exe, astralchain.ini, astralchain-install.json.
+Temp folder (<temp>/<dest name>-<hash>): check/ (the ExeFS and its manifest, the host check), gen/ (C), build/
+(objects), logs/. The cleanup keeps gen/, build/ and logs/: the next run lifts into the same gen/, where recomp/gen.py
+rewrites only the chunks whose C changed, and Ninja in build/ recompiles only those. A change of the mods' code cheats
+then costs the lift (about a minute) and the chunks it touches, not a full compile.
 
 Install folder build-cache/: cheats.status (tools/cheats.py), exefs.status (tools/exefs_patches.py) and rebuild.txt, the command that starts this setup in
 its rebuild mode on the install folder (installer/gui.py --rebuild), one argument per line; astralchain.exe runs it at start
@@ -31,20 +30,19 @@ import time
 from pathlib import Path
 
 from . import ini
-from .layout import EXE, SUPPORTED, version_tag
+from .layout import EXE, version_tag
 from .runner import InstallError, Step
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 try:
     import extract  # noqa: E402
-    import shader_list  # noqa: E402
-    from extract_exefs import (common_tickets, container_entries, load_keys, nca_ctr_key, nca_inventory,  # noqa: E402
-                               program_nca)
+    from extract import (common_tickets, container_entries, load_keys, nca_ctr_key, nca_inventory,  # noqa: E402
+                         program_nca)
     TOOLS_IMPORT_ERROR = None
 except ImportError as exc:
     # A release folder whose tools/ is missing or partly copied: the check step names the missing files, so the setup
     # reports check.release_incomplete instead of stopping on an import before it reaches any step.
-    extract = shader_list = None
+    extract = None
     common_tickets = container_entries = load_keys = nca_ctr_key = nca_inventory = program_nca = None
     TOOLS_IMPORT_ERROR = exc
 
@@ -53,6 +51,7 @@ DEST_EXTRA = 4 * GiB      # beside the RomFS: shader and pipeline caches (about 
 TEMP_NEED = 3 * GiB       # generated C (about 0.9 GB) and objects
 HOSTCHECK = Path(__file__).resolve().parent / 'hostcheck.c'
 STAMP = '.install-key'
+VERSION = '1.0.0'        # the game version the port builds: the base game, no update
 
 
 # ---- helpers
@@ -147,8 +146,8 @@ def run_tool(ctx, step, script, args, parse=None, cwd=None):
     logs = ctx.temp / 'logs'
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f'{step}-{Path(script).stem}.log'
-    command = [str(ctx.layout.python), '-c', extract.RUN_SCRIPT, str(script), *map(str, args)]
-    ctx.reporter.log('run ' + ' '.join(command[3:]))
+    command = [str(ctx.layout.python), str(script), *map(str, args)]
+    ctx.reporter.log('run ' + ' '.join(command[2:]))
     env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8')
     with open(log, 'w', encoding='utf-8', newline='\n') as out:
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd or ctx.layout.root,
@@ -176,29 +175,31 @@ def free_bytes(path):
 
 
 def raise_if_damaged(error, name, path):
-    """InstallError check.input_damaged when a reader's ValueError says the file's data fails its hashes or ends early
-    (extract.DAMAGE_TEXT)."""
-    if extract.DAMAGE_TEXT.search(str(error)):
+    """InstallError check.input_damaged when a reader's ValueError says the file's data fails its hashes or ends early."""
+    if re.search(r'mismatch|truncat|bounds|short', str(error), re.IGNORECASE):
         raise InstallError('check.input_damaged', input=name, path=str(path), detail=str(error)) from None
 
 
-def game_version(ctx):
-    """The update this install is built from: what the check identified, else the recorded one. An install made before
-    1.4.3 support records no version, and that install is 1.2.1: name it here rather than leaning on SUPPORTED's order."""
-    return ctx.state.get('version', '1.2.1')
-
-
-def expected_update(ctx):
-    return extract.load_expected()[game_version(ctx)]
-
-
-def shader_list_text(layout):
-    if layout.shader_list:
-        return layout.shader_list.read_text(encoding='utf-8')
+def romfs_verified(romfs, expected):
+    """Whether romfs/index.json records the expected size and hash and romfs.bin still has that size."""
     try:
-        return shader_list.history(layout.root / 'refs' / 'MacNativeGames')
-    except subprocess.CalledProcessError:
-        raise InstallError('prepare.shader_list_missing')
+        report = json.loads((romfs / 'index.json').read_text(encoding='utf-8'))
+        return (report.get('romfs_size') == expected['romfs']['size']
+                and report.get('romfs_sha256') == expected['romfs']['sha256']
+                and (romfs / 'romfs.bin').stat().st_size == expected['romfs']['size'])
+    except (OSError, ValueError):
+        return False
+
+
+def game_version(ctx):
+    """The game version this install is built from. The port builds the base game only, so there is no update to
+    identify: every install is 1.0.0."""
+    return VERSION
+
+
+def expected_game(ctx):
+    """The expected hashes of the base game: tools/data/expected-v1.0.0.json."""
+    return extract.exefs_expected()
 
 
 class Watch(threading.Thread):
@@ -228,71 +229,14 @@ class Watch(threading.Thread):
         self.stopped.set()
 
 
-def size_of(paths):
-    return sum(p.stat().st_size for p in paths if p.is_file())
-
-
-# The Switch system shared fonts (runtime/ov_system.c): Astral Chain falls back to them for Chinese, Korean and Traditional
-# Chinese text. tools/vendor/macnativegames/extract_shared_fonts.py writes these names.
-SHARED_FONTS = 'shared-fonts'
-SHARED_FONT_FILES = ('0-standard.bfttf', '1-chinese-simplified.bfttf', '2-chinese-simplified-extension.bfttf',
-                     '3-chinese-traditional.bfttf', '4-korean.bfttf', '5-nintendo-extension.bfttf')
-FONTS_NEED = 32 << 20     # the six BFTTF files and their manifest
-
-
 def requested_lang(ctx):
     """The language this run uses: --lang, else the one recorded for the install (Check canonicalizes it)."""
     return ini.canonical_language(getattr(ctx.options, 'lang', None) or ctx.state.get('lang'))
 
 
-def firmware_dir(value):
-    """The firmware NCA folder behind a --firmware path: the folder itself, or its registered/ child (the emulators'
-    layout, Contents/registered)."""
-    if not value:
-        return None
-    path = Path(value)
-    return path / 'registered' if (path / 'registered').is_dir() else path
-
-
-def firmware_has_ncas(folder):
-    """Whether folder holds firmware NCAs: .nca files, or the hashed directories with a 00 file (registered/)."""
-    try:
-        entries = list(Path(folder).iterdir())
-    except OSError:
-        return False
-    return any((e.is_file() and e.suffix.lower() == '.nca') or (e.is_dir() and (e / '00').is_file()) for e in entries)
-
-
-def firmware_stamp(folder):
-    """A cheap identity of the firmware NCAs: names, sizes and mtimes, not their contents (the folder is ~326 MB)."""
-    try:
-        entries = sorted(Path(folder).iterdir())
-    except OSError:
-        return 'missing'
-    rows = []
-    for entry in entries:
-        if entry.is_dir():
-            file = entry / '00'
-            if not file.is_file():
-                continue
-        elif not entry.is_file() or entry.suffix.lower() != '.nca':
-            continue
-        else:
-            file = entry
-        st = file.stat()
-        rows.append((entry.name, st.st_size, st.st_mtime_ns))
-    return rows
-
-
-def shared_fonts_ready(dest):
-    """Whether dest/shared-fonts holds a complete set that the game can load."""
-    folder = Path(dest) / SHARED_FONTS
-    return (folder / 'manifest.json').is_file() and all((folder / name).is_file() for name in SHARED_FONT_FILES)
-
-
 # ---- 1. check
 
-UPDATE_TITLE_ID = '0100F2C0115B6800'
+UPDATE_TITLE_ID = '01007300020FA800'   # the update NSP of Astral Chain: the base id with bit 0x800 set
 
 
 def base_misuse(records):
@@ -342,25 +286,6 @@ class Check(Step):
             raise InstallError('check.lang_missing')
         if lang not in ini.LANGUAGES:
             raise InstallError('check.lang_unknown', lang=lang, known=', '.join(ini.LANGUAGES))
-        firmware = firmware_dir(getattr(ctx.options, 'firmware', None))
-        if firmware is not None:
-            if not firmware.is_dir():
-                raise InstallError('check.firmware_missing', path=str(firmware))
-            if not firmware_has_ncas(firmware):
-                raise InstallError('check.firmware_empty', path=str(firmware))
-        if lang in ini.NEED_SHARED_FONTS:
-            if firmware is None:
-                rep.warning('warn.lang_needs_fonts', lang=lang)
-            elif not shared_fonts_ready(dest):
-                keys = getattr(ctx.options, 'keys', None)
-                if not keys or not Path(keys).is_file():
-                    raise InstallError('check.fonts_keys_needed')
-                try:
-                    key_values = load_keys(Path(keys))
-                except (ValueError, OSError, UnicodeDecodeError):
-                    raise InstallError('check.keys_unreadable') from None
-                if 'header_key' not in key_values:
-                    raise InstallError('check.keys_no_header_key')
         ctx.lang = lang
         ctx.temp.mkdir(parents=True, exist_ok=True)
 
@@ -425,9 +350,9 @@ class Check(Step):
         ctx.host = host
 
     def inputs(self, ctx):
-        """Open both files with the keys as the extraction will. Returns the bytes of both Program NCAs."""
+        """Open the base game and the keys file as the extraction will. Returns the bytes of the Program NCA."""
         o = ctx.options
-        for name in ('base', 'update', 'keys'):
+        for name in ('base', 'keys'):
             path = getattr(o, name)
             if not path:
                 raise InstallError('check.inputs_needed')
@@ -439,23 +364,19 @@ class Check(Step):
             raise InstallError('check.keys_unreadable') from None
         if 'header_key' not in keys:
             raise InstallError('check.keys_no_header_key')
-        total = 0
-        for name, is_update in (('base', False), ('update', True)):
-            path = Path(getattr(o, name))
-            with path.open('rb') as f:
-                total += self.open_input(f, path, keys, name, is_update)
+        path = Path(o.base)
+        with path.open('rb') as f:
+            total = self.open_input(f, path, keys, 'base')
         del keys
         return total
 
     @staticmethod
-    def open_input(f, path, keys, name, is_update):
+    def open_input(f, path, keys, name):
         try:
             kind, entries = container_entries(f, path.stat().st_size)
         except ValueError as e:
             raise_if_damaged(e, name, path)
             raise InstallError('check.not_game_file', input=name) from None
-        if is_update and kind != 'nsp':
-            raise InstallError('check.update_not_nsp')
         try:
             tickets = common_tickets(f, entries)
         except ValueError as e:
@@ -471,15 +392,12 @@ class Check(Step):
             raise_if_damaged(e, name, path)
             raise InstallError('check.file_unreadable', input=name, detail=str(e)) from None
         try:
-            record, header = program_nca(records, update=is_update)
+            record, header = program_nca(records)
         except ValueError as e:
-            if is_update and 'BKTR' in str(e):
-                raise InstallError('check.update_is_base') from None
-            if not is_update:
-                reason = base_misuse(records)
-                if reason:
-                    raise InstallError(reason) from None
-            raise InstallError('check.update_not_totk' if is_update else 'check.base_not_totk', detail=str(e)) from None
+            reason = base_misuse(records)
+            if reason:
+                raise InstallError(reason) from None
+            raise InstallError('check.base_not_astral', detail=str(e)) from None
         try:
             nca_ctr_key(header, keys, tickets)
         except ValueError as e:
@@ -492,14 +410,11 @@ class Check(Step):
     def space(self, ctx, ncas):
         dest_need = temp_need = 0
         if ctx.will_run('extract'):
-            # the update is identified after this estimate: the larger RomFS of the supported ones
-            dest_need += max(extract.load_expected()[v]['romfs']['size'] for v in SUPPORTED) + ncas
+            dest_need += expected_game(ctx)['romfs']['size'] + ncas
             romfs = ctx.dest / 'romfs' / 'romfs.bin'
             if romfs.is_file():   # a resumed extraction replaces it
                 dest_need -= romfs.stat().st_size
-        if ctx.will_run('fonts'):
-            dest_need += FONTS_NEED
-        if ctx.will_run('prepare') or ctx.will_run('extract'):
+        if ctx.will_run('extract'):
             dest_need += DEST_EXTRA
         if ctx.will_run('lift') or ctx.will_run('compile'):
             temp_need += TEMP_NEED
@@ -518,104 +433,24 @@ class Check(Step):
                                    free_gb=round(free / 1e9, 1))
 
     def versions(self, ctx):
-        """Extract both ExeFS into the temp folder (verifying every block) and identify the versions by hash."""
+        """Extract the ExeFS of the base game into the temp folder, verifying every block, and check it against the
+        hashes of the 1.0.0 dump this port was built from: a file that differs stops the install here, before ten
+        gigabytes of RomFS are written."""
         o, work = ctx.options, ctx.temp / 'check'
-        logs = ctx.temp / 'logs'
-        logs.mkdir(parents=True, exist_ok=True)
-        versions = extract.load_expected()
-        for name, is_update in (('base', False), ('update', True)):
-            out = work / name
-            remove(out)
-            try:
-                extract.extract_exefs(Path(getattr(o, name)), Path(o.keys), out, logs, update=is_update)
-            except extract.DamagedFile as e:
-                raise InstallError('check.input_damaged', input=name, path=str(e.path), detail=e.detail) from None
-            except ValueError:
-                raise InstallError('check.exefs_failed', input=name, log=str(logs / f'extract_exefs-{name}.log')) \
-                    from None
-        problems = extract.exefs_problems(work / 'base' / 'exefs', versions['1.0.0'])
-        if problems:
-            raise InstallError('check.base_wrong_version', modules=', '.join(problems))
-        try:
-            found = extract.identify_update(work / 'update' / 'exefs', versions)['display_version']
-        except ValueError:
-            found = 'unknown'
-        if found not in SUPPORTED:
-            raise InstallError('check.update_wrong_version', found=found, wanted=' / '.join(SUPPORTED))
-        if found != game_version(ctx):   # another update than the recorded one: every step builds again from it
-            ctx.reporter.log(f'check: update {found} (recorded {game_version(ctx)})')
-            ctx.state['version'] = found
-            ctx.keys = {}
-            ctx.plan(ctx.forced | {'extract', 'lift', 'compile', 'prepare'})
-        ctx.state['version'] = found
-
-
-# ---- 2. fonts
-
-class Fonts(Step):
-    """The Switch system fonts for Chinese, Korean and Traditional Chinese text (tools/extract_fonts.py, which runs the
-    vendored extract_shared_fonts.py). The firmware folder is optional: without it the setup warns and the game runs
-    with those glyphs missing. The extraction verifies the firmware NCAs and writes the six BFTTF files the console
-    puts in shared memory."""
-
-    id = 'fonts'
-
-    def key(self, ctx):
-        lang = requested_lang(ctx)
-        if lang not in ini.NEED_SHARED_FONTS:
-            return fingerprint('fonts-1', 'not-needed')
-        firmware = firmware_dir(getattr(ctx.options, 'firmware', None))
-        if firmware is None:
-            return fingerprint('fonts-1', 'no-firmware')
-        return fingerprint('fonts-1', lang, str(firmware), firmware_stamp(firmware))
-
-    def current(self, ctx, record):
-        if requested_lang(ctx) not in ini.NEED_SHARED_FONTS or not getattr(ctx.options, 'firmware', None):
-            return True
-        return shared_fonts_ready(ctx.dest)
-
-    def verify(self, ctx, record):
-        # An update run may omit --firmware; the installed set still has to be there for these languages.
-        if requested_lang(ctx) in ini.NEED_SHARED_FONTS:
-            return shared_fonts_ready(ctx.dest)
-        return True
-
-    def run(self, ctx):
-        lang = getattr(ctx, 'lang', None) or requested_lang(ctx)
-        if lang not in ini.NEED_SHARED_FONTS:
-            return {}
-        firmware = firmware_dir(getattr(ctx.options, 'firmware', None))
-        if firmware is None:
-            return {}   # Check warned: the game runs, some text may not show
-        keys = getattr(ctx.options, 'keys', None)
-        if not keys:
-            raise InstallError('check.fonts_keys_needed')
-        out = ctx.temp / 'shared-fonts'
+        out = work / 'base'
         remove(out)
-        ctx.reporter.progress('fonts', 'extract', force=True)
-        tool = ctx.layout.tools / 'vendor' / 'macnativegames' / 'extract_shared_fonts.py'
-        code, log = run_tool(ctx, 'fonts', tool, ['--keys', keys, '--firmware', firmware, '--output', out])
-        if code:
-            detail = ''
-            try:
-                detail = log.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-1][:300]
-            except (OSError, IndexError):
-                pass
-            raise InstallError('fonts.failed', code=code, detail=detail, log=str(log))
-        missing = [name for name in SHARED_FONT_FILES if not (out / name).is_file()]
-        if missing or not (out / 'manifest.json').is_file():
-            raise InstallError('fonts.incomplete', files=', '.join(missing) or 'manifest.json')
-        ctx.reporter.progress('fonts', 'copy', force=True)
         try:
-            ctx.dest.mkdir(parents=True, exist_ok=True)
-            remove(ctx.dest / SHARED_FONTS)
-            shutil.move(str(out), str(ctx.dest / SHARED_FONTS))
-        except OSError as e:
-            raise InstallError('fonts.copy_failed', path=str(ctx.dest / SHARED_FONTS), detail=str(e)) from None
-        return {'files': len(SHARED_FONT_FILES)}
+            extract.extract_exefs(Path(o.base), Path(o.keys), out / 'exefs')
+        except ValueError as e:
+            raise_if_damaged(e, 'base', Path(o.base))
+            raise InstallError('check.file_unreadable', input='base', detail=str(e)) from None
+        ok, problems = extract.exefs_ok(out / 'exefs', expected_game(ctx))
+        if not ok:
+            raise InstallError('check.base_wrong_version', modules=', '.join(problems))
+        ctx.state['version'] = game_version(ctx)
 
 
-# ---- 3. extract
+# ---- 2. extract
 
 class Extract(Step):
     id = 'extract'
@@ -625,16 +460,9 @@ class Extract(Step):
         return fingerprint('extract-1', ctx.layout.expected(game_version(ctx)))
 
     def current(self, ctx, record):
-        # Another update file than the recorded one (1.2.1 -> 1.4.3) extracts again; the check then identifies it.
-        update, known = getattr(ctx.options, 'update', None), ctx.state['inputs'].get('update')
-        if update and known and Path(update).is_file():
-            st = Path(update).stat()
-            if (st.st_size, st.st_mtime_ns) != (known.get('size'), known.get('mtime_ns')) \
-                    and file_sha256(Path(update)) != known.get('sha256'):
-                return False
-        expected = expected_update(ctx)
+        expected = expected_game(ctx)
         romfs = ctx.dest / 'romfs'
-        if extract.exefs_problems(ctx.dest / 'exefs', expected) or not extract.romfs_verified(romfs, expected):
+        if not extract.exefs_ok(ctx.dest / 'exefs', expected)[0] or not romfs_verified(romfs, expected):
             return False
         st = (romfs / 'romfs.bin').stat()
         return st.st_size == record.get('romfs_size') and st.st_mtime_ns == record.get('romfs_mtime_ns')
@@ -643,42 +471,35 @@ class Extract(Step):
         image = ctx.dest / 'romfs' / 'romfs.bin'
         rep = ctx.reporter
         digest = file_sha256(image, lambda d, t: rep.progress('check', 'verify_romfs', d, t, 'bytes'))
-        return digest == expected_update(ctx)['romfs']['sha256']
+        return digest == expected_game(ctx)['romfs']['sha256']
 
     def run(self, ctx):
         o, dest, rep = ctx.options, ctx.dest, ctx.reporter
-        expected = expected_update(ctx)
-        base, update, keys = Path(o.base), Path(o.update), Path(o.keys)
-        inputs = {}
-        for name, path in (('base', base), ('update', update)):
-            known = ctx.state['inputs'].get(name, {})
-            st = path.stat()
-            if known.get('size') == st.st_size and known.get('mtime_ns') == st.st_mtime_ns and known.get('sha256'):
-                inputs[name] = known
-                continue
-            digest = file_sha256(path, lambda d, t, n=name: rep.progress('extract', 'hash_' + n, d, t, 'bytes'))
-            inputs[name] = {'name': path.name, 'size': st.st_size, 'mtime_ns': st.st_mtime_ns, 'sha256': digest}
+        expected = expected_game(ctx)
+        base, keys = Path(o.base), Path(o.keys)
+        st = base.stat()
+        known = ctx.state['inputs'].get('base', {})
+        if known.get('size') == st.st_size and known.get('mtime_ns') == st.st_mtime_ns and known.get('sha256'):
+            inputs = {'base': known}
+        else:
+            digest = file_sha256(base, lambda d, t: rep.progress('extract', 'hash_base', d, t, 'bytes'))
+            inputs = {'base': {'name': base.name, 'size': st.st_size, 'mtime_ns': st.st_mtime_ns, 'sha256': digest}}
         ctx.state['inputs'] = inputs
         ctx.save()
 
         dest.mkdir(parents=True, exist_ok=True)
-        for stale in dest.glob('update-merge-*'):   # a killed merge leaves its NCA copies (and key copies) behind
-            remove(stale)
         rep.progress('extract', 'exefs', force=True)
-        staged = ctx.temp / 'check' / 'update' / 'exefs'
-        if not staged.is_dir():
-            remove(ctx.temp / 'check' / 'update')
+        staged = ctx.temp / 'check' / 'base'
+        if not (staged / 'exefs').is_dir():
+            remove(staged)
             try:
-                extract.extract_exefs(update, keys, ctx.temp / 'check' / 'update', ctx.temp / 'logs', update=True)
-            except extract.DamagedFile as e:
-                raise InstallError('check.input_damaged', input='update', path=str(e.path), detail=e.detail) from None
-            except ValueError:
-                raise InstallError('check.exefs_failed', input='update',
-                                   log=str(ctx.temp / 'logs' / 'extract_exefs-update.log')) from None
+                extract.extract_exefs(base, keys, staged / 'exefs')
+            except ValueError as e:
+                raise InstallError('check.file_unreadable', input='base', detail=str(e)) from None
         remove(dest / 'exefs')
-        shutil.move(staged, dest / 'exefs')
-        problems = extract.exefs_problems(dest / 'exefs', expected)
-        if problems:
+        shutil.move(str(staged / 'exefs'), str(dest / 'exefs'))
+        ok, problems = extract.exefs_ok(dest / 'exefs', expected)
+        if not ok:
             raise InstallError('extract.exefs_mismatch', version=game_version(ctx), modules=', '.join(problems))
         if extract.sha256(dest / 'exefs' / 'main.npdm') != expected['exefs_sha256']['main.npdm']:
             rep.warning('warn.npdm_differs', version=game_version(ctx))
@@ -686,41 +507,30 @@ class Extract(Step):
         romfs = dest / 'romfs'
         if self.id in ctx.forced:
             remove(romfs)   # the full hash failed: index.json still claims the extraction's hash
-        if not extract.romfs_verified(romfs, expected):
-            self.merge(ctx, base, update, keys, romfs, expected)
-        report = json.loads((romfs / 'index.json').read_text())
+        if not romfs_verified(romfs, expected):
+            remove(romfs)
+            manifest_path = staged / 'extraction-manifest.json'
+            if not manifest_path.is_file():
+                # the ExeFS was staged by an earlier run whose manifest went away: extract it again
+                remove(staged)
+                try:
+                    extract.extract_exefs(base, keys, staged / 'exefs')
+                except ValueError as e:
+                    raise InstallError('check.file_unreadable', input='base', detail=str(e)) from None
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            rep.progress('extract', 'copy', force=True)
+            try:
+                extract.extract_romfs(base, keys, manifest, romfs)
+            except ValueError as e:
+                remove(romfs)
+                raise InstallError('extract.romfs_failed', detail=str(e)) from None
+        report = json.loads((romfs / 'index.json').read_text(encoding='utf-8'))
         if report['romfs_size'] != expected['romfs']['size'] or report['romfs_sha256'] != expected['romfs']['sha256']:
             raise InstallError('extract.romfs_mismatch', version=game_version(ctx), size=report['romfs_size'],
                                sha256=report['romfs_sha256'][:16])
         (dest / 'profile').mkdir(exist_ok=True)
         st = (romfs / 'romfs.bin').stat()
         return {'romfs_size': st.st_size, 'romfs_mtime_ns': st.st_mtime_ns}
-
-    def merge(self, ctx, base, update, keys, romfs, expected):
-        dest, logs = ctx.dest, ctx.temp / 'logs'
-        ncas = extract.merge_space(base, update, keys)
-        watch = Watch(ctx.reporter, 'extract')
-
-        def phase(name):
-            if name == 'copy':
-                watch.set('copy', lambda: size_of(dest.glob('update-merge-*/*.nca')), ncas)
-            elif name == 'merge':
-                watch.set('merge', lambda: size_of(dest.glob('update-merge-*/result/romfs.bin')),
-                          expected['romfs']['size'])
-            else:
-                watch.set(name)
-
-        watch.start()
-        try:
-            extract.merge_update_romfs(base, update, keys, ctx.layout.hactool, romfs, logs, phase=phase)
-        except extract.DamagedFile as e:
-            raise InstallError('check.input_damaged', input='base' if e.path == base else 'update', path=str(e.path),
-                               detail=e.detail) from None
-        except ValueError as e:
-            raise InstallError('extract.romfs_merge_failed', detail=str(e), log=str(logs / 'merge_romfs-'
-                                                                                     f'{dest.name}.log')) from None
-        finally:
-            watch.stop()
 
 
 # ---- 4. lift
@@ -733,20 +543,8 @@ CHEAT_PLACES = ('cheats', 'atmosphere/contents/0100F2C0115B6000/cheats', 'conten
                 '0100F2C0115B6000/cheats')
 
 
-def cheat_files(ctx):
-    """The Atmosphere cheat files of the mods folder (<dest>/mods/<mod>/cheats/*.txt and the Atmosphere places, as
-    tools/cheats.py finds them), for the lift key. All of them: the ones the build reads go by the build id of the
-    installed main, and the keys are computed before Extract runs (runner plan), when a fresh install has no main and an
-    update may still have another version's."""
-    mods = ctx.dest / 'mods'
-    if not mods.is_dir():
-        return []
-    return sorted(f for mod in mods.iterdir() if mod.is_dir() for where in CHEAT_PLACES
-                  for f in ((mod / where).glob('*.txt') if (mod / where).is_dir() else ()))
-
-
-EXEFS_PLACES = ('exefs', 'atmosphere/contents/0100F2C0115B6000/exefs', 'contents/0100F2C0115B6000/exefs',
-                '0100F2C0115B6000/exefs')
+EXEFS_PLACES = ('exefs', 'atmosphere/contents/01007300020FA000/exefs', 'contents/01007300020FA000/exefs',
+                '01007300020FA000/exefs')
 
 
 def exefs_files(ctx):
@@ -769,20 +567,13 @@ def exefs_status(ctx):
     return ctx.dest / 'build-cache' / 'exefs.status'
 
 
-def cheats_status(ctx):
-    """The build's cheat status file (tools/cheats.py --status), which runtime/cheats.c reads: in build-cache, not in a
-    mod's own cheats folder, which the player (or TKMM's merge) may empty."""
-    return ctx.dest / 'build-cache' / 'cheats.status'
-
-
 class Lift(Step):
     id = 'lift'
     transient = True
 
     def key(self, ctx):
-        return fingerprint('lift-4', ctx.keys['extract'], ctx.layout.recomp, ctx.layout.patches(game_version(ctx)),
-                           ctx.layout.tools / 'cheats.py', ctx.layout.tools / 'exefs_patches.py', *cheat_files(ctx),
-                           *exefs_files(ctx))
+        return fingerprint('lift-5', ctx.keys['extract'], ctx.layout.recomp, ctx.layout.patches(game_version(ctx)),
+                           ctx.layout.tools / 'exefs_patches.py', *exefs_files(ctx))
 
     def current(self, ctx, record):
         gen = ctx.temp / 'gen'
@@ -801,13 +592,11 @@ class Lift(Step):
             if m:
                 rep.progress('lift', 'emit', int(m.group(1)), int(m.group(2)), 'chunks')
 
-        # The code cheats of the mods' cheat files and the mods' ExeFS patch files become patch sets (tools/cheats.py,
-        # tools/exefs_patches.py); their status files tell the runtime what the build has. Both are the player's
-        # downloads, so files the tools refuse cost those cheats or patches, not the install: the game is built
-        # without them and the setup warns.
+        # The mods' ExeFS patch files become a patch set (tools/exefs_patches.py); its status file tells the runtime
+        # what the build has. They are the player's downloads, so files the tool refuses cost those patches, not the
+        # install: the game is built without them and the setup warns.
         plain = layout.patches(game_version(ctx))
-        stages = [('cheats.py', 'patches-cheats.txt', cheats_status(ctx), cheat_files(ctx), 'warn.cheats_skipped'),
-                  ('exefs_patches.py', 'patches-exefs.txt', exefs_status(ctx), exefs_files(ctx), 'warn.exefs_skipped')]
+        stages = [('exefs_patches.py', 'patches-exefs.txt', exefs_status(ctx), exefs_files(ctx), 'warn.exefs_skipped')]
         patches, skipped = plain, {}
         for tool, out, status, inputs, warn in stages:
             status.unlink(missing_ok=True)   # no status: the runtime treats every such file as not built
@@ -864,8 +653,10 @@ class Compile(Step):
         return fingerprint('compile-3', ctx.keys['lift'], runtime_key(ctx))
 
     def current(self, ctx, record):
-        exe = ctx.dest / ('totk' + EXE)
+        exe = ctx.dest / ('astralchain' + EXE)
         if not exe.is_file() or not (ctx.dest / 'romfs-index.bin').is_file():
+            return False
+        if not (ctx.dest / ctx.layout.xlate.name).is_file():
             return False
         if not all((ctx.dest / d.name).is_file() for d in ctx.layout.dlls):
             return False
@@ -894,7 +685,7 @@ class Compile(Step):
             '--version', version_tag(game_version(ctx)), '--expected', layout.expected(game_version(ctx)),
             '--exefs', dest / 'exefs', '--romfs', dest / 'romfs',
             '--profile', dest / 'profile'], parse)
-        exe = build / ('totk' + EXE)
+        exe = build / ('astralchain' + EXE)
         if code or not exe.is_file():
             raise InstallError('compile.failed', code=code, log=str(log))
         try:
@@ -902,136 +693,20 @@ class Compile(Step):
         except PermissionError:
             raise InstallError('compile.exe_in_use', path=str(dest / exe.name)) from None
         replace_file(build / 'romfs-index.bin', dest / 'romfs-index.bin')
+        # The translator translates the game's shaders at run time: without it next to the game, nothing is drawn.
+        try:
+            replace_file(layout.xlate, dest / layout.xlate.name)
+            xlate_id = layout.xlate.with_suffix('.id')
+            if xlate_id.is_file():
+                replace_file(xlate_id, dest / xlate_id.name)
+        except PermissionError:
+            raise InstallError('compile.exe_in_use', path=str(dest / layout.xlate.name)) from None
         for dll in layout.dlls:
             replace_file(dll, dest / dll.name)
         return {'exe_sha256': file_sha256(dest / exe.name), 'cpu': cpu}
 
 
-# ---- 6. prepare
-
-TRANSLATED = re.compile(r'gfx_shader: prepare: (\d+) of (\d+) pairs')
-# runtime/vk_pipeline.c lb_warm_prepared: variants the driver crashed on in an earlier run (tools/prepare_shaders.py
-# runs the driver step again after such a crash)
-SKIPPED = re.compile(r'prepare-shaders: (\d+) variants skipped: the graphics driver crashed')
-
-
-# The game resolutions of another shape than 16:9 that runtime/ui/menu.cpp row_output_res lists: 21:9 and 32:9 monitors,
-# and 16:10 screens (the Steam Deck's 1280x800, handhelds and laptops)
-ASPECT_SIZES = ('2560x1080', '3440x1440', '3840x1600', '5120x2160', '3840x1080', '5120x1440',
-                '1280x800', '1680x1050', '1920x1200', '2560x1600')
-
-
-class Prepare(Step):
-    id = 'prepare'
-
-    def key(self, ctx):
-        layout = ctx.layout
-        xlate_id = layout.xlate.with_suffix('.id')
-        tools = [layout.tools / n for n in ('prepare_shaders.py', 'shader_census.py', 'make_romfs_patches.py',
-                                            'pack_shader_cache.py', 'ultrawide_layout.py', 'button_icons.py')]
-        # not the compile key: a rebuild for the mods' code cheats keeps the prepared shaders
-        return fingerprint('prepare-2', ctx.keys['extract'], runtime_key(ctx), layout.xlate, xlate_id,
-                           shader_list_text(layout), *tools)
-
-    def current(self, ctx, record):
-        dest = ctx.dest
-        xlate = dest / ctx.layout.xlate.name
-        return ((dest / 'shader-prepared.bin').is_file() and (dest / 'romfs-patches' / 'manifest.tsv').is_file()
-                and xlate.is_file() and file_sha256(xlate) == record.get('xlate_sha256'))
-
-    def run(self, ctx):
-        layout, rep, dest = ctx.layout, ctx.reporter, ctx.dest
-        xlate = dest / layout.xlate.name
-        if xlate.is_file() and file_sha256(xlate) != file_sha256(layout.xlate):
-            # Another translator: its cache keys differ, so the old translations would only take space.
-            for name in ('shader-cache', 'shader-prepared.bin'):
-                remove(dest / name)
-        # astralchain.exe starts ac_xlate.exe as a child while it prepares shaders; a preparation that was stopped from
-        # outside leaves that child holding this file, and Windows then refuses to replace it (issue #174).
-        try:
-            replace_file(layout.xlate, xlate)
-        except PermissionError:
-            raise InstallError('prepare.xlate_in_use', path=str(xlate)) from None
-        xlate_id = layout.xlate.with_suffix('.id')
-        if xlate_id.is_file():
-            try:
-                replace_file(xlate_id, xlate.with_suffix('.id'))
-            except PermissionError:
-                raise InstallError('prepare.xlate_in_use', path=str(xlate.with_suffix('.id'))) from None
-        else:
-            remove(xlate.with_suffix('.id'))
-
-        rep.progress('prepare', 'romfs_patches', force=True)
-        remove(dest / 'romfs-patches')
-        code, log = run_tool(ctx, 'prepare', layout.tools / 'make_romfs_patches.py',
-                             ['--version', version_tag(game_version(ctx)), '--romfs', dest / 'romfs', '--out',
-                              dest / 'romfs-patches'])
-        if code:
-            raise InstallError('prepare.romfs_patches_failed', code=code, log=str(log))
-        # The same overlay with the UI laid out for each game resolution of another shape the settings menu offers
-        # (runtime/romfs.c overlay_init picks the one that matches; the camera's side is the patch set aspect,
-        # recomp/patches-v<ver>.txt).
-        for size in ASPECT_SIZES:
-            remove(dest / f'romfs-patches-{size}')
-            code, log = run_tool(ctx, 'prepare', layout.tools / 'make_romfs_patches.py',
-                                 ['--version', version_tag(game_version(ctx)), '--romfs', dest / 'romfs', '--out',
-                                  dest / f'romfs-patches-{size}', '--aspect', size])
-            if code:
-                raise InstallError('prepare.romfs_patches_failed', code=code, log=str(log))
-        # The same with Xbox button icons in the prompts, for prompts = xbox (make_romfs_patches.py --prompts):
-        # romfs-patches-xbox for the Nintendo pad layout, romfs-patches-xbox-label for xbox and auto (runtime/input_map.c
-        # input_prompts_folder). Both are written on every install, so the menu choices work without another run of
-        # the setup. Optional: when one fails, the game keeps the Switch prompts with that layout and the menu says the
-        # files are missing, so the setup warns once and goes on.
-        failed = None
-        for style in ('xbox', 'xbox-label'):
-            out = dest / f'romfs-patches-{style}'
-            remove(out)
-            code, log = run_tool(ctx, f'prepare-{style}', layout.tools / 'make_romfs_patches.py',
-                                 ['--version', version_tag(game_version(ctx)), '--romfs', dest / 'romfs', '--out', out,
-                                  '--prompts', style])
-            if code:
-                remove(out)
-                failed = failed or (code, log)
-        if failed:
-            rep.warning('warn.xbox_prompts_failed', code=failed[0], log=str(failed[1]))
-
-        shader_list = layout.shader_list
-        if not shader_list:
-            shader_list = ctx.temp / 'shader_list.tsv'
-            shader_list.write_text(shader_list_text(layout), encoding='utf-8', newline='\n')
-
-        skipped = [0]
-
-        def parse(line):
-            m = TRANSLATED.search(line)
-            if m:
-                rep.progress('prepare', 'translate', int(m.group(1)), int(m.group(2)), 'shaders')
-            elif SKIPPED.search(line):
-                skipped[0] = int(SKIPPED.search(line).group(1))
-            elif 'listed variants' in line:
-                rep.progress('prepare', 'translate', force=True)
-            elif 'gfx_shader: prepare:' in line and 'translated' in line and 'programs' in line:
-                rep.progress('prepare', 'libraries', force=True)
-
-        rep.progress('prepare', 'seed', force=True)
-        code, log = run_tool(ctx, 'prepare', layout.tools / 'prepare_shaders.py',
-                             [dest, '--version', version_tag(game_version(ctx)), '--romfs', dest / 'romfs', '--exefs',
-                              dest / 'exefs', '--list', shader_list], parse)
-        if code or not (dest / 'shader-prepared.bin').is_file():
-            raise InstallError('prepare.shaders_failed', code=code, log=str(log))
-        if skipped[0]:
-            rep.warning('warn.shaders_skipped', count=skipped[0], log=str(log))
-
-        # One shader-cache.pack instead of four files per shader (~117,000): astralchain.exe reads the pack first.
-        rep.progress('prepare', 'pack', force=True)
-        code, log = run_tool(ctx, 'prepare', layout.tools / 'pack_shader_cache.py', [dest / 'shader-cache'])
-        if code:
-            raise InstallError('prepare.pack_failed', code=code, log=str(log))
-        return {'xlate_sha256': file_sha256(xlate)}
-
-
-# ---- 7. clean up
+# ---- 6. clean up
 
 class Cleanup(Step):
     id = 'cleanup'
@@ -1051,7 +726,7 @@ class Cleanup(Step):
             remove(stale)
         for name in ('check', 'shader_list.tsv', 'shared-fonts'):   # gen/ and build/ stay for the next rebuild
             remove(ctx.temp / name)
-        romfs_problem(dest / 'romfs', expected_update(ctx))
+        romfs_problem(dest / 'romfs', expected_game(ctx))
         write_rebuild_command(ctx)
         return {}
 
@@ -1088,7 +763,7 @@ def romfs_problem(romfs, expected):
     an install whose romfs/ went empty and unreadable after the extraction verified it (a folder Windows was still
     deleting, #107) reported success and the game stopped at its first file read."""
     try:
-        ok = extract.romfs_verified(romfs, expected) and (romfs / 'romfs.bin').stat().st_size == expected['romfs']['size']
+        ok = romfs_verified(romfs, expected)
         if ok:
             with open(romfs / 'romfs.bin', 'rb') as f:
                 f.read(1)
@@ -1099,4 +774,4 @@ def romfs_problem(romfs, expected):
 
 
 def all_steps():
-    return [Check(), Fonts(), Extract(), Lift(), Compile(), Prepare(), Cleanup()]
+    return [Check(), Extract(), Lift(), Compile(), Cleanup()]

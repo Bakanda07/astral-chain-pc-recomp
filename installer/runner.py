@@ -2,7 +2,7 @@
 
 Each step has a key: a fingerprint of everything its output depends on, computed before anything runs (a step's key
 includes the keys of the steps it reads from, so a change upstream reaches every step below it). A step is skipped
-when totk-install.json records it with the same key and its output still matches the record (Step.current, cheap).
+when astralchain-install.json records it with the same key and its output still matches the record (Step.current, cheap).
 Otherwise it runs. A transient step (its output lives in the temp folder and only the next step reads it) runs only
 when the next step runs. `always` steps (check, cleanup) run every time.
 
@@ -72,8 +72,9 @@ class Context:
         """Fill keys (once), runs and reasons. forced: step ids that must run."""
         if not self.keys:
             # A release folder that lacks files gets empty keys: the check step stops the run with
-            # check.release_incomplete, and computing a key can need those files (clang --version, the shader list).
-            incomplete = bool(self.layout.missing(getattr(self, 'cpu', 'v3')))
+            # check.release_incomplete, and computing a key can need those files (clang --version, the shader list). A
+            # dev layout points at the checkout, so its files are there.
+            incomplete = not self.layout.dev and bool(self.layout.missing(getattr(self, 'cpu', 'v3')))
             for s in self.steps:
                 self.keys[s.id] = '' if incomplete else s.key(self)
         for s in self.steps:

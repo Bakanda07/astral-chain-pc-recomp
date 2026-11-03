@@ -61,7 +61,7 @@
  "check.file_unreadable": "无法读取{input}文件：{detail}",
  "check.ticket_personalized": "{input}文件带有个人化票据（personalized ticket）；需要通用票据（common ticket）。",
  "check.ticket_missing": "{input}文件缺少其内容所需的票据（ticket）。",
- "check.base_not_totk": "基础游戏文件不是 Astral Chain（{detail}）。",
+ "check.base_not_astral": "基础游戏文件不是 Astral Chain（{detail}）。",
  "check.base_is_update": "基础游戏文件是一个更新。请在这里选择基础游戏的 NSP 或 XCI（版本 1.0.0），并把此文件选为更新。",
  "check.base_combined": "基础游戏文件包含多个内容包（基础游戏、更新或 DLC 合在一个文件中）。请选择只包含游戏本体的基础游戏转储。",
  "check.update_not_nsp": "更新必须是 NSP 文件。",
@@ -78,6 +78,7 @@
 
  "extract.exefs_mismatch": "解包出的游戏代码与 {version} 版本不符（{modules}）。",
  "extract.romfs_merge_failed": "将更新应用到游戏数据失败：{detail}。详情：{log}",
+ "extract.romfs_failed": "提取游戏数据失败：{detail}。",
  "extract.romfs_mismatch": "解包出的游戏数据与 {version} 版本不符（大小 {size}，校验和 {sha256}...）。",
  "fonts.failed": "提取共享字体失败（退出代码 {code}）：{detail}。详情：{log}",
  "fonts.incomplete": "共享字体提取没有写出全部文件（{files}）。",

@@ -36,12 +36,26 @@ Report problems as issues, following [CONTRIBUTING.md](CONTRIBUTING.md).
 - The 1.0.1 update
 - 60 fps and higher frame-rate limits
 - Shaders prepared at install instead of during play
-- Setup and installer
+- A Linux release
 
 ## Installing
 
-Not yet: the setup and installer come later. Until then, build from source
-([docs/building.md](docs/building.md)).
+Download `Astral Chain-Setup-<version>-windows.zip` from [Releases](../../releases), unpack it anywhere and start
+`Astral Chain-Setup.exe`. It asks for:
+
+- your own copy of the base game (version 1.0.0, XCI or NSP);
+- your `prod.keys`;
+- the game language and the folder to install into.
+
+It then extracts the game's data, lifts the game's code to C, and builds `astralchain.exe` on your machine: about a
+minute on a fast CPU, a few minutes on a slow one, and about 14 GB for the installed folder plus 4 GB of temporary
+files. The setup carries no game data and no code derived from the game.
+
+You need Windows 10 or 11 on x86-64 (SSE4.2 at least) and a Vulkan 1.3 graphics card. The exe is unsigned, so
+SmartScreen warns on the first start.
+
+Nothing is published yet: the release is being prepared. Until then, build from source
+([docs/building.md](docs/building.md)); the setup is described in [docs/installer.md](docs/installer.md).
 
 ## Credits
 

@@ -61,7 +61,7 @@
  "check.file_unreadable": "The {input} file cannot be read: {detail}",
  "check.ticket_personalized": "The {input} file carries a personalized ticket; a common ticket is needed.",
  "check.ticket_missing": "The {input} file lacks the ticket its content needs.",
- "check.base_not_totk": "The base game file is not Astral Chain ({detail}).",
+ "check.base_not_astral": "The base game file is not Astral Chain ({detail}).",
  "check.base_is_update": "The base game file is an update. Choose the base game NSP or XCI (version 1.0.0) here and this file as the update.",
  "check.base_combined": "The base game file holds several packages (base game, update or DLC in one file). Choose a base game dump that contains only the game.",
  "check.update_not_nsp": "The update must be an NSP file.",
@@ -78,6 +78,7 @@
 
  "extract.exefs_mismatch": "The extracted game code does not match version {version} ({modules}).",
  "extract.romfs_merge_failed": "Applying the update to the game data failed: {detail}. Details: {log}",
+ "extract.romfs_failed": "Extracting the game data failed: {detail}.",
  "extract.romfs_mismatch": "The extracted game data does not match version {version} (size {size}, checksum {sha256}...).",
  "fonts.failed": "Extracting the shared fonts failed (exit code {code}): {detail}. Details: {log}",
  "fonts.incomplete": "The shared font extraction did not write every file ({files}).",

@@ -30,7 +30,7 @@ from installer import layout as layouts  # noqa: E402
 from installer import state as statefile  # noqa: E402
 from installer.events import Reporter  # noqa: E402
 from installer.runner import Context  # noqa: E402
-from installer.steps import Fonts, all_steps  # noqa: E402
+from installer.steps import all_steps  # noqa: E402
 from installer.guilogic import (DONE, FAILED, PENDING, RUNNING, SKIPPED, UI_LANGUAGE_LABELS,  # noqa: E402
                                 UI_LANGUAGES, Catalog, Form, Model, Process, amount, default_game_language,
                                 describe_event, parse_line, ui_language_for_langid, windows_ui_language)
@@ -39,7 +39,7 @@ INSTALLED = ROOT / 'build' / 'install-test'
 FIXTURE = ROOT / 'build' / 'inst-gui' / 'e2e-install'
 COPIED = ('astralchain.ini', statefile.NAME)   # written by a run, so never linked
 START = {'type': 'start', 'release': 'r1', 'mode': 'install', 'dest': 'D:\\T', 'log': 'D:\\T.log',
-         'steps': ['check', 'fonts', 'extract', 'lift', 'compile', 'prepare', 'cleanup']}
+         'steps': ['check', 'extract', 'lift', 'compile', 'cleanup']}
 
 
 def fold(*events):
@@ -67,7 +67,7 @@ class ModelTest(unittest.TestCase):
         m = fold(START, {'type': 'plan', 'run': ['check', 'extract'], 'skip': {'lift': 'current', 'compile': 'current'}},
                  {'type': 'step', 'step': 'check', 'state': 'started'})
         self.assertEqual([m.states[s] for s in m.steps],
-                         [RUNNING, PENDING, PENDING, SKIPPED, SKIPPED, PENDING, PENDING])
+                         [RUNNING, PENDING, SKIPPED, SKIPPED, PENDING])
         self.assertEqual(m.current, 'check')
         m.apply({'type': 'step', 'step': 'check', 'state': 'done', 'seconds': 1.0})
         self.assertEqual(m.states['check'], DONE)
@@ -138,14 +138,12 @@ class ModelTest(unittest.TestCase):
 
 
 class RunStatesTest(unittest.TestCase):
-    OK = [START, {'type': 'plan', 'run': ['check', 'extract'], 'skip': {'fonts': 'current', 'lift': 'current',
-                                                                     'compile': 'current', 'prepare': 'current',
+    OK = [START, {'type': 'plan', 'run': ['check', 'extract'], 'skip': {'lift': 'current', 'compile': 'current',
                                                                      'cleanup': 'not_needed'}},
           {'type': 'step', 'step': 'check', 'state': 'started'}, {'type': 'step', 'step': 'check', 'state': 'done'},
           {'type': 'step', 'step': 'extract', 'state': 'started'}, {'type': 'step', 'step': 'extract', 'state': 'done'},
-          {'type': 'step', 'step': 'fonts', 'state': 'skipped'},
           {'type': 'step', 'step': 'lift', 'state': 'skipped'}, {'type': 'step', 'step': 'compile', 'state': 'skipped'},
-          {'type': 'step', 'step': 'prepare', 'state': 'skipped'}, {'type': 'step', 'step': 'cleanup', 'state': 'done'},
+          {'type': 'step', 'step': 'cleanup', 'state': 'done'},
           {'type': 'end', 'result': 'ok', 'seconds': 1}]
     FAILED = [START, {'type': 'step', 'step': 'check', 'state': 'started'}, {'type': 'step', 'step': 'check', 'state': 'done'},
               {'type': 'step', 'step': 'extract', 'state': 'started'},
@@ -184,7 +182,7 @@ class FormTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def form(self, **kw):
-        values = dict(base=str(self.dir / 'base.nsp'), update=str(self.dir / 'upd.nsp'), keys=str(self.dir / 'prod.keys'),
+        values = dict(base=str(self.dir / 'base.nsp'), keys=str(self.dir / 'prod.keys'),
                       lang='en-US', dest=str(self.dir / 'out'))
         values.update(kw)
         return Form(**values)
@@ -193,8 +191,7 @@ class FormTest(unittest.TestCase):
         self.assertEqual(self.form().problems(), [])
 
     def test_empty_form(self):
-        self.assertEqual(Form().problems(), ['ui.need_dest', 'ui.need_base', 'ui.need_update', 'ui.need_keys',
-                                             'ui.need_lang'])
+        self.assertEqual(Form().problems(), ['ui.need_dest', 'ui.need_base', 'ui.need_keys', 'ui.need_lang'])
 
     def test_missing_files(self):
         self.assertEqual(self.form(base=str(self.dir / 'no.nsp'), keys=str(self.dir / 'no.keys')).problems(),
@@ -203,20 +200,11 @@ class FormTest(unittest.TestCase):
     def test_unknown_language(self):
         self.assertEqual(self.form(lang='xx').problems(), ['ui.need_lang'])
 
-    def test_firmware_folder(self):
-        firmware = self.dir / 'firmware'
-        firmware.mkdir()
-        self.assertEqual(self.form(firmware=str(firmware)).problems(), [])
-        self.assertEqual(self.form(firmware=str(self.dir / 'no-firmware')).problems(), ['ui.missing_firmware'])
-
     def test_command(self):
-        firmware = self.dir / 'firmware'
-        firmware.mkdir()
-        cmd = self.form(firmware=str(firmware)).command('py.exe', root=ROOT, temp=self.dir / 't', verify_hashes=True)
+        cmd = self.form().command('py.exe', root=ROOT, temp=self.dir / 't', verify_hashes=True)
         self.assertEqual(cmd[:3], ['py.exe', '-m', 'installer'])
-        for flag in ('--base', '--update', '--keys', '--firmware', '--lang', '--dest', '--root', '--temp', '--verify'):
+        for flag in ('--base', '--keys', '--lang', '--dest', '--root', '--temp', '--verify'):
             self.assertIn(flag, cmd)
-        self.assertEqual(cmd[cmd.index('--firmware') + 1], str(firmware))
         self.assertEqual(cmd[cmd.index('--lang') + 1], 'en-US')
 
     def test_installed_folder_needs_only_itself(self):

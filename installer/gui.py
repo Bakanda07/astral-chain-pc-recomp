@@ -55,7 +55,7 @@ class App:
         self.run_args = run_args or {}   # extra CLI options for tests: temp, verify
         self.log_entries = []            # events and raw lines of the run, rendered by render_log
         self.bound = []                  # (widget, option, id, params) retranslated on a language switch
-        self.vars = {n: tk.StringVar() for n in ('base', 'update', 'keys', 'firmware', 'dest')}
+        self.vars = {n: tk.StringVar() for n in ('base', 'keys', 'dest')}
         self.vars['lang'] = tk.StringVar()
         self.lang_code = default_game_language(ui_lang)
         self.screen = None
@@ -63,7 +63,7 @@ class App:
 
         root.title(self.cat('ui.title'))
         icon = layout.runtime / 'astralchain.ico'
-        png = layout.runtime / 'totk.png'   # Tk loads no .ico off Windows; the Linux release converts it
+        png = layout.runtime / 'astralchain.png'   # Tk loads no .ico off Windows; the Linux release converts it
         if os.name == 'nt' and icon.is_file():
             root.iconbitmap(default=str(icon))
         elif png.is_file():
@@ -281,8 +281,8 @@ class App:
     # ---- form -----------------------------------------------------------------------------------------------------
 
     def form(self):
-        return Form(base=self.vars['base'].get(), update=self.vars['update'].get(), keys=self.vars['keys'].get(),
-                    firmware=self.vars['firmware'].get(), lang=self.selected_lang(), dest=self.vars['dest'].get())
+        return Form(base=self.vars['base'].get(), keys=self.vars['keys'].get(), lang=self.selected_lang(),
+                    dest=self.vars['dest'].get())
 
     def refresh_form(self):
         form = self.form()
@@ -505,7 +505,7 @@ class App:
     def start_game(self):
         """Starts the game of the install folder and closes the window."""
         dest = Path(self.vars['dest'].get().strip())
-        exe = dest / ('astralchain.exe' if os.name == 'nt' else 'totk')
+        exe = dest / ('astralchain.exe' if os.name == 'nt' else 'astralchain')
         flags = subprocess.DETACHED_PROCESS if os.name == 'nt' else 0
         if exe.is_file():
             subprocess.Popen([str(exe)], cwd=str(dest), creationflags=flags, close_fds=True)
@@ -524,15 +524,14 @@ class App:
 # ---- self test ---------------------------------------------------------------------------------------------------
 
 SAMPLE_START = {'type': 'start', 'release': 'selftest', 'mode': 'install', 'dest': 'Z:/selftest/Astral Chain', 'log': 'D:\\log.txt',
-                'steps': ['check', 'fonts', 'extract', 'lift', 'compile', 'prepare', 'cleanup']}
+                'steps': ['check', 'extract', 'lift', 'compile', 'cleanup']}
 SAMPLE_RUN = [
     SAMPLE_START,
-    {'type': 'plan', 'run': ['check', 'fonts', 'extract'], 'skip': {}},
+    {'type': 'plan', 'run': ['check', 'extract'], 'skip': {}},
     {'type': 'step', 'step': 'check', 'state': 'started'},
     {'type': 'progress', 'step': 'check', 'phase': 'inputs'},
     {'type': 'space', 'dest': 'Z:/selftest/Astral Chain', 'need': 36_400_000_000, 'free': 210_000_000_000, 'temp': 'C:\\t',
      'temp_need': 0, 'temp_free': 0, 'same_disk': True},
-    {'type': 'warning', 'id': 'warn.lang_needs_fonts', 'params': {'lang': 'ko'}},
     {'type': 'step', 'step': 'check', 'state': 'done', 'seconds': 12.0},
     {'type': 'step', 'step': 'extract', 'state': 'started'},
     {'type': 'progress', 'step': 'extract', 'phase': 'copy', 'done': 6_000_000_000, 'total': 16_000_000_000,
@@ -540,17 +539,15 @@ SAMPLE_RUN = [
 ]
 
 
-SAMPLE_OK = [SAMPLE_START, {'type': 'plan', 'run': ['check', 'extract'], 'skip': {'fonts': 'current', 'lift': 'current',
-                                                                       'compile': 'current', 'prepare': 'current',
+SAMPLE_OK = [SAMPLE_START, {'type': 'plan', 'run': ['check', 'extract'], 'skip': {'lift': 'current',
+                                                                       'compile': 'current',
                                                                        'cleanup': 'not_needed'}},
              {'type': 'step', 'step': 'check', 'state': 'started'},
              {'type': 'step', 'step': 'check', 'state': 'done', 'seconds': 1.0},
              {'type': 'step', 'step': 'extract', 'state': 'started'},
              {'type': 'step', 'step': 'extract', 'state': 'done', 'seconds': 1.0},
-             {'type': 'step', 'step': 'fonts', 'state': 'skipped', 'reason': 'current'},
              {'type': 'step', 'step': 'lift', 'state': 'skipped', 'reason': 'current'},
              {'type': 'step', 'step': 'compile', 'state': 'skipped', 'reason': 'current'},
-             {'type': 'step', 'step': 'prepare', 'state': 'skipped', 'reason': 'current'},
              {'type': 'step', 'step': 'cleanup', 'state': 'done', 'seconds': 0.1},
              {'type': 'end', 'result': 'ok', 'seconds': 3}]
 
@@ -584,8 +581,7 @@ def selftest(layout, shots=None):
             app.switch_language()
             tag = lang
             app.vars['dest'].set('Z:/selftest/Astral Chain')
-            app.vars['base'].set('Z:/selftest/totk.xci')
-            app.vars['update'].set('Z:/selftest/totk-1.2.1.nsp')
+            app.vars['base'].set('Z:/selftest/astralchain.xci')
             app.vars['keys'].set('Z:/selftest/prod.keys')
             app.show('form')
             app.start()   # missing files: shows the problems

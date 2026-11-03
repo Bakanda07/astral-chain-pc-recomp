@@ -1,9 +1,9 @@
 """End-to-end run of the installer in dev mode with the game files named in config.local.toml.
 
-Reads input.base, the 1.2.1 entry of input.updates (the one build/extracted/v121 was extracted from, else the only
-one) and input.keys, and passes them to `python -m installer` started the way the release launcher starts it: the
-embeddable Python (build/py314-embed) with this checkout on sys.path. The paths are never printed. Events go to
-<events> (JSON lines); stdout gets each step's state and time, warnings and errors.
+Reads input.base and input.keys, and passes them to `python -m installer` started the way the release launcher starts
+it: with this checkout on sys.path (the embeddable Python of build/py314-embed when it exists, this interpreter
+otherwise). The paths are never printed. Events go to <events> (JSON lines); stdout gets each step's state and time,
+warnings and errors.
 
     python tests/installer_e2e.py --dest build/install-test --lang en-US [--events FILE] [--no-inputs] [-- extra args]
 
@@ -24,17 +24,7 @@ BOOT = ('import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); '
 
 def game_inputs():
     config = tomllib.loads((ROOT / 'config.local.toml').read_text(encoding='utf-8'))['input']
-    updates = [Path(u) for u in config.get('updates', [])]
-    manifest = ROOT / 'build' / 'extracted' / 'v121' / 'extraction-manifest.json'
-    update = None
-    if manifest.is_file():
-        source = json.loads(manifest.read_text())['source']
-        update = next((u for u in updates if str(u.resolve()) == source), None)
-    if update is None and len(updates) == 1:
-        update = updates[0]
-    if update is None:
-        sys.exit('installer_e2e: cannot tell which input.updates entry is 1.2.1')
-    return ['--base', config['base'], '--update', str(update), '--keys', config['keys']]
+    return ['--base', config['base'], '--keys', config['keys']]
 
 
 def main():
